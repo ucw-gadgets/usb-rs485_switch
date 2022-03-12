@@ -100,7 +100,7 @@ static void debug_init(void)
 	usart_set_baudrate(USART2, 115200);
 	usart_set_databits(USART2, 8);
 	usart_set_stopbits(USART2, USART_STOPBITS_1);
-	usart_set_mode(USART2, USART_MODE_TX);
+	usart_set_mode(USART2, USART_MODE_TX_RX);
 	usart_set_parity(USART2, USART_PARITY_NONE);
 	usart_set_flow_control(USART2, USART_FLOWCONTROL_NONE);
 
@@ -192,6 +192,11 @@ static void reg_set_flag(uint port, uint flag)
 static void reg_clear_flag(uint port, uint flag)
 {
 	reg_state[port/2] &= ~((port & 1) ? flag : (flag << 4));
+}
+
+static void reg_toggle_flag(uint port, uint flag)
+{
+	reg_state[port/2] ^= (port & 1) ? flag : (flag << 4);
 }
 
 /*** USB ***/
@@ -400,7 +405,7 @@ int main(void)
 	tick_init();
 	// usb_init();
 
-	// debug_printf("Lisak je lisak...\n");
+	debug_printf("Lisak je lisak...\n");
 
 	byte t = 0;
 	u32 last_blink = 0;
@@ -408,12 +413,20 @@ int main(void)
 	for (;;) {
 		if (ms_ticks - last_blink >= 250) {
 			debug_led_toggle();
-			reg_clear_flag(t, SF_LED | SF_PWREN);
+			reg_clear_flag(t, SF_LED);
 			t = (t+1) & 7;
-			reg_set_flag(t, SF_LED | SF_PWREN);
+			reg_set_flag(t, SF_LED);
 			reg_send();
-			delay_ms(250);
 			last_blink = ms_ticks;
+		}
+
+		if (usart_get_flag(USART2, USART_SR_RXNE)) {
+			uint ch = usart_recv(USART2);
+			debug_putc(ch);
+			if (ch >= '0' && ch <= '7') {
+				reg_toggle_flag(ch - '0', SF_PWREN);
+				reg_send();
+			}
 		}
 
 #if 0

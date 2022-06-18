@@ -201,7 +201,11 @@ static void reg_toggle_flag(uint port, uint flag)
 
 /*** USB ***/
 
-#if 0
+#if 1
+
+#define USB_RS485_USB_VENDOR 0x4242
+#define USB_RS485_USB_PRODUCT 0x000b
+#define USB_RS485_USB_VERSION 1
 
 static usbd_device *usbd_dev;
 
@@ -334,8 +338,6 @@ static void ep01_cb(usbd_device *dev, uint8_t ep UNUSED)
 	// We received a frame from the USB host
 	uint len = usbd_ep_read_packet(dev, 0x01, usb_rx_buf, sizeof(usb_rx_buf));
 	debug_printf("USB: Host sent %u bytes\n", len);
-	memcpy(led_rgb, usb_rx_buf, len);
-	neopixel_want_send = 1;
 }
 
 static void set_config_cb(usbd_device *dev, uint16_t wValue UNUSED)
@@ -403,7 +405,7 @@ int main(void)
 	debug_init();
 	reg_init();
 	tick_init();
-	// usb_init();
+	usb_init();
 
 	debug_printf("Lisak je lisak...\n");
 
@@ -429,8 +431,9 @@ int main(void)
 			}
 		}
 
-#if 0
+#if 1
 		if (usb_event_pending) {
+			debug_putc('#');
 			usbd_poll(usbd_dev);
 			usb_event_pending = 0;
 			nvic_clear_pending_irq(NVIC_USB_LP_CAN_RX0_IRQ);

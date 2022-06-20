@@ -1,0 +1,10 @@
+== Things to be fixed in HW ==
+
+- GND and GND2 must be connected for VBUS power to work.
+
+- The PIN pin of ADuM4160 should be connected to GPIO0, so that
+  USB can be disconnected in firmware. (If software control were not
+  needed, PIN should be connected to VDD2 on the same chip.)
+
+- D+ at downstream side of the ADuM4160 has to be pulled up to 3V3
+  by a 1k5 resistor.

@@ -63,7 +63,7 @@ static void gpio_init(void)
 	// PA13 + PA14 = programming interface
 	// PA15 = GPIO3
 
-	// PB0 = GPIO0
+	// PB0 = GPIO0 = ADuM4160 PIN (USB upstream enable)
 	// PB1 = I_SENSE -> ADC12_IN9
 	// PB2 = unused
 	// PB3 = I_SEN_A
@@ -200,8 +200,6 @@ static void reg_toggle_flag(uint port, uint flag)
 }
 
 /*** USB ***/
-
-#if 1
 
 #define USB_RS485_USB_VENDOR 0x4242
 #define USB_RS485_USB_PRODUCT 0x000b
@@ -376,9 +374,10 @@ void usb_lp_can_rx0_isr(void)
 static void usb_init(void)
 {
 	// Simulate USB disconnect
-	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_OPENDRAIN, GPIO11 | GPIO12);
-	gpio_clear(GPIOA, GPIO11 | GPIO12);
+	gpio_set_mode(GPIOB, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO0);
+	gpio_clear(GPIOB, GPIO0);
 	delay_ms(100);
+	gpio_set(GPIOB, GPIO0);
 
 	usbd_dev = usbd_init(
 		&st_usbfs_v1_usb_driver,
@@ -393,8 +392,6 @@ static void usb_init(void)
 	usbd_register_set_config_callback(usbd_dev, set_config_cb);
 	usb_event_pending = 1;
 }
-
-#endif
 
 /*** Main ***/
 
@@ -431,15 +428,12 @@ int main(void)
 			}
 		}
 
-#if 1
 		if (usb_event_pending) {
-			debug_putc('#');
 			usbd_poll(usbd_dev);
 			usb_event_pending = 0;
 			nvic_clear_pending_irq(NVIC_USB_LP_CAN_RX0_IRQ);
 			nvic_enable_irq(NVIC_USB_LP_CAN_RX0_IRQ);
 		}
-#endif
 
 		wait_for_interrupt();
 	}

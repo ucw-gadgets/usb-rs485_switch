@@ -10,6 +10,7 @@
 #include <libopencm3/cm3/nvic.h>
 #include <libopencm3/cm3/systick.h>
 #include <libopencm3/cm3/scb.h>
+#include <libopencm3/stm32/adc.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/spi.h>
@@ -34,6 +35,7 @@ static void clock_init(void)
 	rcc_periph_clock_enable(RCC_USART3);
 	rcc_periph_clock_enable(RCC_SPI2);
 	// rcc_periph_clock_enable(RCC_TIM4);
+	rcc_periph_clock_enable(RCC_ADC1);
 
 	rcc_periph_reset_pulse(RST_GPIOA);
 	rcc_periph_reset_pulse(RST_GPIOB);
@@ -43,6 +45,7 @@ static void clock_init(void)
 	rcc_periph_reset_pulse(RST_USART3);
 	rcc_periph_reset_pulse(RST_SPI2);
 	// rcc_periph_reset_pulse(RST_TIM4);
+	rcc_periph_reset_pulse(RST_ADC1);
 }
 
 static void gpio_init(void)
@@ -197,6 +200,77 @@ static void reg_clear_flag(uint port, uint flag)
 static void reg_toggle_flag(uint port, uint flag)
 {
 	reg_state[port/2] ^= (port & 1) ? flag : (flag << 4);
+}
+
+/*** ADC ***/
+
+static void adc_init(void)
+{
+	// PA0, PA1 and PB1 are analog inputs
+	gpio_set_mode(GPIOA, GPIO_MODE_INPUT, GPIO_CNF_INPUT_ANALOG, GPIO0 | GPIO1);
+	gpio_set_mode(GPIOB, GPIO_MODE_INPUT, GPIO_CNF_INPUT_ANALOG, GPIO1);
+
+	// PB3 to PB5 control the analog multiplexer on PB1
+	gpio_set_mode(GPIOB, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO3 | GPIO4 | GPIO5);
+
+	adc_power_off(ADC1);
+	// ADC prescaler set by rcc_clock_setup_pll(): ADC clock = PCLK2/8 = 9 MHz
+	rcc_set_adcpre(RCC_CFGR_ADCPRE_PCLK2_DIV2);
+	adc_disable_scan_mode(ADC1);
+	adc_set_single_conversion_mode(ADC1);
+	adc_set_sample_time(ADC1, ADC_CHANNEL0, ADC_SMPR_SMP_239DOT5CYC);
+	adc_set_sample_time(ADC1, ADC_CHANNEL1, ADC_SMPR_SMP_239DOT5CYC);
+	adc_set_sample_time(ADC1, ADC_CHANNEL16, ADC_SMPR_SMP_239DOT5CYC);
+	adc_set_sample_time(ADC1, ADC_CHANNEL17, ADC_SMPR_SMP_239DOT5CYC);
+	adc_enable_external_trigger_regular(ADC1, ADC_CR2_EXTSEL_SWSTART);
+	adc_enable_temperature_sensor();
+	adc_power_on(ADC1);
+	adc_reset_calibration(ADC1);
+	adc_calibrate(ADC1);
+}
+
+static void adc_test(void)
+{
+	for (int i=0; i<4; i++) {
+		uint j=0;
+		switch (i) {
+		case 0:
+			j = ADC_CHANNEL0;
+			break;
+		case 1:
+			j = ADC_CHANNEL1;
+			break;
+		case 2:
+			j = ADC_CHANNEL16;
+			break;
+		case 3:
+			j = ADC_CHANNEL17;
+			break;
+		}
+
+		uint8_t channels[] = { j };
+		adc_set_regular_sequence(ADC1, 1, channels);
+
+		adc_start_conversion_regular(ADC1);
+
+		while (! adc_eoc(ADC1));
+		uint reg16 = adc_read_regular(ADC1);
+		debug_printf("ADC %d = %d\n", i, reg16);
+	}
+
+	for (int i=0; i<8; i++) {
+		gpio_clear(GPIOB, GPIO3 | GPIO4 | GPIO5);
+		gpio_set(GPIOB, i << 3);
+
+		uint8_t channels[] = { ADC_CHANNEL9 };
+		adc_set_regular_sequence(ADC1, 1, channels);
+
+		adc_start_conversion_regular(ADC1);
+
+		while (! adc_eoc(ADC1));
+		uint reg16 = adc_read_regular(ADC1);
+		debug_printf("SENSE %d = %d\n", i, reg16);
+	}
 }
 
 /*** USB ***/
@@ -402,6 +476,7 @@ int main(void)
 	debug_init();
 	reg_init();
 	tick_init();
+	adc_init();
 	usb_init();
 
 	debug_printf("Lisak je lisak...\n");
@@ -425,6 +500,8 @@ int main(void)
 			if (ch >= '0' && ch <= '7') {
 				reg_toggle_flag(ch - '0', SF_PWREN);
 				reg_send();
+			} else if (ch == 'a') {
+				adc_test();
 			}
 		}
 

@@ -215,7 +215,7 @@ static void adc_init(void)
 
 	adc_power_off(ADC1);
 	// ADC prescaler set by rcc_clock_setup_pll(): ADC clock = PCLK2/8 = 9 MHz
-	rcc_set_adcpre(RCC_CFGR_ADCPRE_PCLK2_DIV2);
+	rcc_set_adcpre(RCC_CFGR_ADCPRE_PCLK2_DIV8);
 	adc_disable_scan_mode(ADC1);
 	adc_set_single_conversion_mode(ADC1);
 	adc_set_sample_time(ADC1, ADC_CHANNEL0, ADC_SMPR_SMP_239DOT5CYC);

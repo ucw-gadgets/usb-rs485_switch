@@ -220,6 +220,7 @@ static void adc_init(void)
 	adc_set_single_conversion_mode(ADC1);
 	adc_set_sample_time(ADC1, ADC_CHANNEL0, ADC_SMPR_SMP_239DOT5CYC);
 	adc_set_sample_time(ADC1, ADC_CHANNEL1, ADC_SMPR_SMP_239DOT5CYC);
+	adc_set_sample_time(ADC1, ADC_CHANNEL9, ADC_SMPR_SMP_239DOT5CYC);
 	adc_set_sample_time(ADC1, ADC_CHANNEL16, ADC_SMPR_SMP_239DOT5CYC);
 	adc_set_sample_time(ADC1, ADC_CHANNEL17, ADC_SMPR_SMP_239DOT5CYC);
 	adc_enable_external_trigger_regular(ADC1, ADC_CR2_EXTSEL_SWSTART);
@@ -261,6 +262,7 @@ static void adc_test(void)
 	for (int i=0; i<8; i++) {
 		gpio_clear(GPIOB, GPIO3 | GPIO4 | GPIO5);
 		gpio_set(GPIOB, i << 3);
+		delay_ms(5);
 
 		uint8_t channels[] = { ADC_CHANNEL9 };
 		adc_set_regular_sequence(ADC1, 1, channels);

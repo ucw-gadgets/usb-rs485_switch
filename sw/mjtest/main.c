@@ -280,6 +280,60 @@ static void adc_test(void)
 	}
 }
 
+/*** Loopback between ports 1 and 5 ***/
+
+static void loop_init(void)
+{
+	// USART1: Ports 1 to 4
+	// PA9 = TXD1
+	// PA10 = RXD1
+	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO9);
+	gpio_set_mode(GPIOA, GPIO_MODE_INPUT, GPIO_CNF_INPUT_FLOAT, GPIO10);
+
+	usart_set_baudrate(USART1, 115200);
+	usart_set_databits(USART1, 8);
+	usart_set_stopbits(USART1, USART_STOPBITS_1);
+	usart_set_mode(USART1, USART_MODE_TX_RX);
+	usart_set_parity(USART1, USART_PARITY_NONE);
+	usart_set_flow_control(USART1, USART_FLOWCONTROL_NONE);
+
+	usart_enable(USART1);
+
+	// USART3: Ports 5 to 9
+	// PB10 = TXD3
+	// PB11 = RXD3
+	gpio_set_mode(GPIOB, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO10);
+	gpio_set_mode(GPIOB, GPIO_MODE_INPUT, GPIO_CNF_INPUT_FLOAT, GPIO11);
+
+	usart_set_baudrate(USART3, 115200);
+	usart_set_databits(USART3, 8);
+	usart_set_stopbits(USART3, USART_STOPBITS_1);
+	usart_set_mode(USART3, USART_MODE_TX_RX);
+	usart_set_parity(USART3, USART_PARITY_NONE);
+	usart_set_flow_control(USART3, USART_FLOWCONTROL_NONE);
+
+	usart_enable(USART3);
+
+	// Enable TX on port 1
+	reg_set_flag(0, SF_TXEN);
+
+	// Enable RX on port 5
+	reg_clear_flag(4, SF_RXEN_N);
+}
+
+static void loop_recv(void)
+{
+	if (usart_get_flag(USART3, USART_SR_RXNE)) {
+		uint ch = usart_recv(USART3);
+		debug_putc(ch);
+	}
+}
+
+static void loop_send(uint ch)
+{
+	usart_send_blocking(USART1, ch);
+}
+
 /*** USB ***/
 
 #define USB_RS485_USB_VENDOR 0x4242
@@ -485,6 +539,7 @@ int main(void)
 	tick_init();
 	adc_init();
 	usb_init();
+	loop_init();
 
 	debug_printf("Lisak je lisak...\n");
 
@@ -509,8 +564,12 @@ int main(void)
 				reg_send();
 			} else if (ch == 'a') {
 				adc_test();
+			} else {
+				loop_send(ch);
 			}
 		}
+
+		loop_recv();
 
 		if (usb_event_pending) {
 			usbd_poll(usbd_dev);

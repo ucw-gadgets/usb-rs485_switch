@@ -1,0 +1,6 @@
+#!/usr/bin/kermit
+set port /dev/ttyUSB0
+set speed 115200
+set flow-control none
+set carrier-watch off
+connect

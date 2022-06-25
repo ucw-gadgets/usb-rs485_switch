@@ -8,3 +8,6 @@
 
 - D+ at downstream side of the ADuM4160 has to be pulled up to 3V3
   by a 1k5 resistor.
+
+- Green LEDs are too dim – the 2k7 resistor between PWRENn and the
+  LED is too big.

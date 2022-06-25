@@ -4,71 +4,44 @@
  *	(c) 2022 Martin Mareš <mj@ucw.cz>
  */
 
-#include "util.h"
-#include "interface.h"
+#include "firmware.h"
 
-#include <libopencm3/cm3/cortex.h>
 #include <libopencm3/cm3/nvic.h>
 #include <libopencm3/cm3/systick.h>
-#include <libopencm3/cm3/scb.h>
 #include <libopencm3/stm32/adc.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/spi.h>
-#include <libopencm3/stm32/timer.h>
 #include <libopencm3/stm32/usart.h>
-#include <libopencm3/usb/dfu.h>
-#include <libopencm3/usb/usbd.h>
 
 #include <string.h>
 
 /*** Message queues ***/
 
-#define MAX_IN_FLIGHT 2		// FIXME
-
-struct message_node {
-	struct message_node *next;
-	struct urs485_message msg;
-};
-
 static struct message_node message_buf[MAX_IN_FLIGHT];
 
-struct message_queue {
-	struct message_node *first, *last;
-};
+struct message_queue idle_queue;
+struct message_queue done_queue;
 
-static struct message_queue idle_queue;		// free message structures
-static struct message_queue bus_queue[2];	// to send to the bus
-static struct message_queue done_queue;		// to pass to the host
-
-static struct message_node *usb_rx_current;	// currently being received over USB
-static struct message_node *modbus_current[2];	// currently being handled on MODBUS
-static struct message_node *usb_tx_current;	// currently being sent over USB
-
-static inline bool queue_is_empty(struct message_queue *q)
-{
-	return !q->first;
-}
-
-static void queue_put(struct message_queue *q, struct message_node *m)
+void queue_put(struct message_queue *q, struct message_node *n)
 {
 	if (q->last)
-		q->last->next = m;
+		q->last->next = n;
 	else
-		q->first = m;
-	q->last = m;
-	m->next = NULL;
+		q->first = n;
+	q->last = n;
+	n->next = NULL;
 }
 
-static struct message_node *queue_get(struct message_queue *q)
+struct message_node *queue_get(struct message_queue *q)
 {
-	struct message_node *m = q->first;
-	if (m) {
-		q->first = m->next;
+	struct message_node *n = q->first;
+	if (n) {
+		q->first = n->next;
 		if (!q->first)
 			q->last = NULL;
 	}
-	return m;
+	return n;
 }
 
 static void queues_init(void)
@@ -79,11 +52,11 @@ static void queues_init(void)
 
 /*** Global status ***/
 
-static struct urs485_port_params port_params[8];
-static struct urs485_port_status port_status[8];
-static struct urs485_power_status power_status;
+struct urs485_port_params port_params[8];
+struct urs485_port_status port_status[8];
+struct urs485_power_status power_status;
 
-static const struct urs485_config global_config = {
+const struct urs485_config global_config = {
 	.max_in_flight = MAX_IN_FLIGHT,
 };
 
@@ -197,7 +170,7 @@ static void tick_init(void)
 	systick_interrupt_enable();
 }
 
-static void delay_ms(uint ms)
+void delay_ms(uint ms)
 {
 	u32 start_ticks = ms_ticks;
 	while (ms_ticks - start_ticks < ms)
@@ -239,7 +212,7 @@ static void reg_init(void)
 
 static byte reg_state[4] = { 0x88, 0x88, 0x88, 0x88 };
 
-static void reg_send(void)
+void reg_send(void)
 {
 	for (byte i=0; i<4; i++)
 		spi_send(SPI2, reg_state[3-i]);
@@ -251,29 +224,20 @@ static void reg_send(void)
 	gpio_clear(GPIOA, GPIO8);	// OE*
 }
 
-enum reg_flags {
-	SF_RXEN_N = 8,
-	SF_TXEN = 4,
-	SF_PWREN = 2,
-	SF_LED = 1,
-};
-
-static void reg_set_flag(uint port, uint flag)
+void reg_set_flag(uint port, uint flag)
 {
 	reg_state[port/2] |= (port & 1) ? flag : (flag << 4);
 }
 
-static void reg_clear_flag(uint port, uint flag)
+void reg_clear_flag(uint port, uint flag)
 {
 	reg_state[port/2] &= ~((port & 1) ? flag : (flag << 4));
 }
 
-#if 0
-static void reg_toggle_flag(uint port, uint flag)
+void reg_toggle_flag(uint port, uint flag)
 {
 	reg_state[port/2] ^= (port & 1) ? flag : (flag << 4);
 }
-#endif
 
 /*** ADC ***/
 
@@ -301,364 +265,6 @@ static void adc_init(void)
 	adc_power_on(ADC1);
 	adc_reset_calibration(ADC1);
 	adc_calibrate(ADC1);
-}
-
-/*** Ports ***/
-
-static bool set_port_params(uint port, struct urs485_port_params *par)
-{
-	if (par->baud_rate < 1200 || par->baud_rate > 115200 ||
-	    par->parity > 2 ||
-	    par->powered > 1 ||
-	    !par->request_timeout)
-		return false;
-
-	port_params[port] = *par;
-
-	if (par->powered)
-		reg_set_flag(port, SF_PWREN);
-	else
-		reg_clear_flag(port, SF_PWREN);
-	reg_send();
-
-	return true;
-}
-
-/*** Message ***/
-
-static void internal_error_reply(struct message_node *m, byte error_code)
-{
-	m->frame_size = 2;
-	m->frame[0] |= 0x80;
-	m->frame[1] = error_code;
-}
-
-static void got_msg_from_usb(struct message_node *m)
-{
-	// FIXME
-}
-
-/*** USB ***/
-
-static usbd_device *usbd_dev;
-
-enum usb_string {
-	STR_MANUFACTURER = 1,
-	STR_PRODUCT,
-	STR_SERIAL,
-};
-
-static char usb_serial_number[13];
-
-static const char *usb_strings[] = {
-	"United Computer Wizards",
-	"USB-RS485 Switch",
-	usb_serial_number,
-};
-
-static const struct usb_device_descriptor device = {
-	.bLength = USB_DT_DEVICE_SIZE,
-	.bDescriptorType = USB_DT_DEVICE,
-	.bcdUSB = 0x0200,
-	.bDeviceClass = 0xFF,
-	.bDeviceSubClass = 0,
-	.bDeviceProtocol = 0,
-	.bMaxPacketSize0 = 64,
-	.idVendor = USB_RS485_USB_VENDOR,
-	.idProduct = USB_RS485_USB_PRODUCT,
-	.bcdDevice = USB_RS485_USB_VERSION,
-	.iManufacturer = STR_MANUFACTURER,
-	.iProduct = STR_PRODUCT,
-	.iSerialNumber = STR_SERIAL,
-	.bNumConfigurations = 1,
-};
-
-static const struct usb_endpoint_descriptor endpoints[] = {{
-	// Bulk end-point for sending LED values
-	.bLength = USB_DT_ENDPOINT_SIZE,
-	.bDescriptorType = USB_DT_ENDPOINT,
-	.bEndpointAddress = 0x01,
-	.bmAttributes = USB_ENDPOINT_ATTR_BULK,
-	.wMaxPacketSize = 64,
-	.bInterval = 1,
-}};
-
-static const struct usb_interface_descriptor iface = {
-	.bLength = USB_DT_INTERFACE_SIZE,
-	.bDescriptorType = USB_DT_INTERFACE,
-	.bInterfaceNumber = 0,
-	.bAlternateSetting = 0,
-	.bNumEndpoints = 1,
-	.bInterfaceClass = 0xFF,
-	.bInterfaceSubClass = 0,
-	.bInterfaceProtocol = 0,
-	.iInterface = 0,
-	.endpoint = endpoints,
-};
-
-static const struct usb_dfu_descriptor dfu_function = {
-	.bLength = sizeof(struct usb_dfu_descriptor),
-	.bDescriptorType = DFU_FUNCTIONAL,
-	.bmAttributes = USB_DFU_CAN_DOWNLOAD | USB_DFU_WILL_DETACH,
-	.wDetachTimeout = 255,
-	.wTransferSize = 1024,
-	.bcdDFUVersion = 0x0100,
-};
-
-static const struct usb_interface_descriptor dfu_iface = {
-	.bLength = USB_DT_INTERFACE_SIZE,
-	.bDescriptorType = USB_DT_INTERFACE,
-	.bInterfaceNumber = 1,
-	.bAlternateSetting = 0,
-	.bNumEndpoints = 0,
-	.bInterfaceClass = 0xFE,
-	.bInterfaceSubClass = 1,
-	.bInterfaceProtocol = 1,
-	.iInterface = 0,
-
-	.extra = &dfu_function,
-	.extralen = sizeof(dfu_function),
-};
-
-static const struct usb_interface ifaces[] = {{
-	.num_altsetting = 1,
-	.altsetting = &iface,
-}, {
-	.num_altsetting = 1,
-	.altsetting = &dfu_iface,
-}};
-
-static const struct usb_config_descriptor config = {
-	.bLength = USB_DT_CONFIGURATION_SIZE,
-	.bDescriptorType = USB_DT_CONFIGURATION,
-	.wTotalLength = 0,
-	.bNumInterfaces = 2,
-	.bConfigurationValue = 1,
-	.iConfiguration = 0,
-	.bmAttributes = 0x80,
-	.bMaxPower = 100,	// multiplied by 2 mA
-	.interface = ifaces,
-};
-
-static bool usb_configured;
-static uint8_t usbd_control_buffer[64];
-
-static void dfu_detach_complete(usbd_device *dev UNUSED, struct usb_setup_data *req UNUSED)
-{
-	// Reset to bootloader, which implements the rest of DFU
-	debug_printf("Switching to DFU\n");
-	debug_flush();
-	scb_reset_core();
-}
-
-static enum usbd_request_return_codes dfu_control_cb(usbd_device *dev UNUSED,
-	struct usb_setup_data *req,
-	uint8_t **buf UNUSED,
-	uint16_t *len UNUSED,
-	void (**complete)(usbd_device *dev, struct usb_setup_data *req))
-{
-	if (req->bmRequestType != 0x21 || req->bRequest != DFU_DETACH)
-		return USBD_REQ_NOTSUPP;
-
-	*complete = dfu_detach_complete;
-	return USBD_REQ_HANDLED;
-}
-
-static enum usbd_request_return_codes control_cb(
-	usbd_device *dev UNUSED,
-	struct usb_setup_data *req,
-	uint8_t **buf,
-	uint16_t *len,
-	void (**complete)(usbd_device *dev, struct usb_setup_data *req) UNUSED)
-{
-	uint index = req->wIndex;
-
-	if (req->bmRequestType == (USB_REQ_TYPE_IN | USB_REQ_TYPE_VENDOR | USB_REQ_TYPE_DEVICE)) {
-		debug_printf("USB: Control request IN %02x (index=%d, len=%d)\n", req->bRequest, index, *len);
-
-		const byte *reply = NULL;
-		uint reply_len = 0;
-
-		switch (req->bRequest) {
-			case URS485_CONTROL_GET_CONFIG:
-				reply = (const byte *) &global_config;
-				reply_len = sizeof(global_config);
-				break;
-			case URS485_CONTROL_GET_PORT_STATUS:
-				if (index >= 8)
-					return USBD_REQ_NOTSUPP;
-				reply = (const byte *) &port_status[index];
-				reply_len = sizeof(global_config);
-				break;
-			case URS485_CONTROL_GET_POWER_STATUS:
-				reply = (const byte *) &power_status;
-				reply_len = sizeof(power_status);
-				break;
-			default:
-				return USBD_REQ_NOTSUPP;
-		}
-
-		uint n = MIN(*len, reply_len);
-		memcpy(*buf, reply, n);
-		*len = n;
-		return USBD_REQ_HANDLED;
-	} else if (req->bmRequestType == (USB_REQ_TYPE_OUT | USB_REQ_TYPE_VENDOR | USB_REQ_TYPE_DEVICE)) {
-		debug_printf("USB: Control request OUT %02x (index=%d, len=%d)\n", req->bRequest, index, *len);
-
-		switch (req->bRequest) {
-			case URS485_CONTROL_SET_PORT_PARAMS:
-				if (index >= 8)
-					return USBD_REQ_NOTSUPP;
-				if (*len != sizeof(struct urs485_port_params))
-					return USBD_REQ_NOTSUPP;
-				struct urs485_port_params new_params;
-				memcpy(&new_params, *buf, sizeof(struct urs485_port_params));
-				if (!set_port_params(index, &new_params))
-					return USBD_REQ_NOTSUPP;
-				break;
-			default:
-				return USBD_REQ_NOTSUPP;
-		}
-
-		return USBD_REQ_HANDLED;
-	} else {
-		return USBD_REQ_NOTSUPP;
-	}
-}
-
-static byte usb_bulk_buffer[64];
-static uint usb_rx_pos;
-static uint usb_tx_pos;
-static bool usb_tx_in_flight;
-
-#define MSG_HEADER_SIZE offsetof(struct urs485_message, frame)
-
-static void ep01_cb(usbd_device *dev, uint8_t ep UNUSED)
-{
-	// We received a frame from the USB host
-	uint len = usbd_ep_read_packet(dev, 0x01, usb_bulk_buffer, sizeof(usb_bulk_buffer));
-	byte *pos = usb_bulk_buffer;
-	debug_printf("USB: Host sent %u bytes\n", len);
-
-	while (len) {
-		if (!usb_rx_current) {
-			usb_rx_current = queue_get(&idle_queue);
-			if (!usb_rx_current) {
-				debug_printf("USB: No receive buffer available\n");
-				usbd_ep_stall_set(dev, 0x01, 1);
-				return;
-			}
-			usb_rx_pos = 0;
-		}
-
-		uint goal = (usb_rx_pos < MSG_HEADER_SIZE) ? MSG_HEADER_SIZE : MSG_HEADER_SIZE + usb_rx_current->msg.frame_size;
-		uint want = goal - usb_rx_pos;
-		if (!want) {
-			debug_printf("USB: Received message #%04x of %u bytes\n", usb_rx_current->msg.message_id, want);
-			got_msg_from_usb(usb_rx_current);
-			usb_rx_current = NULL;
-		} else {
-			want = MIN(want, len);
-			memcpy((byte *) &usb_rx_current->msg + usb_rx_pos, pos, want);
-			usb_rx_pos += want;
-			pos += want;
-			len -= want;
-		}
-	}
-}
-
-static void ep82_kick(void)
-{
-	if (!usb_configured || usb_tx_in_flight)
-		return;
-
-	if (!usb_tx_current) {
-		usb_tx_current = queue_get(&done_queue);
-		if (!usb_tx_current)
-			return;
-		debug_printf("USB: Sending message #%04x\n", usb_tx_current->msg.message_id);
-		usb_tx_pos = 0;
-	}
-
-	uint goal = MSG_HEADER_SIZE + usb_tx_current->msg.frame_size;
-	uint len = MIN(goal - usb_tx_pos, 64);
-	usbd_ep_write_packet(usbd_dev, 0x82, (const byte *) &usb_tx_current->msg + usb_tx_pos, len);
-	usb_tx_in_flight = true;
-	usb_tx_pos += len;
-
-	if (usb_tx_pos == goal) {
-		debug_printf("USB: Sent\n");
-		queue_put(&idle_queue, usb_tx_current);
-		usb_tx_current = NULL;
-	}
-}
-
-static void ep82_cb(usbd_device *dev UNUSED, uint8_t ep UNUSED)
-{
-	// We completed sending a frame to the USB host
-	usb_tx_in_flight = false;
-	ep82_kick();
-}
-
-static void set_config_cb(usbd_device *dev, uint16_t wValue UNUSED)
-{
-	usbd_register_control_callback(
-		dev,
-		USB_REQ_TYPE_VENDOR,
-		USB_REQ_TYPE_TYPE,
-		control_cb);
-	usbd_register_control_callback(
-		dev,
-		USB_REQ_TYPE_CLASS | USB_REQ_TYPE_INTERFACE,
-		USB_REQ_TYPE_TYPE | USB_REQ_TYPE_RECIPIENT,
-		dfu_control_cb);
-	usbd_ep_setup(dev, 0x01, USB_ENDPOINT_ATTR_BULK, 64, ep01_cb);
-	usbd_ep_setup(dev, 0x82, USB_ENDPOINT_ATTR_BULK, 64, ep82_cb);
-	usb_configured = true;
-}
-
-static void reset_cb(void)
-{
-	debug_printf("USB: Reset\n");
-	usb_configured = false;
-}
-
-static volatile bool usb_event_pending;
-
-void usb_lp_can_rx0_isr(void)
-{
-	/*
-	 *  We handle USB in the main loop to avoid race conditions between
-	 *  USB interrupts and other code. However, we need an interrupt to
-	 *  up the main loop from sleep.
-	 *
-	 *  We set up only the low-priority ISR, because high-priority ISR handles
-	 *  only double-buffered bulk transfers and isochronous transfers.
-	 */
-	nvic_disable_irq(NVIC_USB_LP_CAN_RX0_IRQ);
-	usb_event_pending = 1;
-}
-
-static void usb_init(void)
-{
-	// Disable USB Isolator for 100 ms and then turn it on
-	gpio_set_mode(GPIOB, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO0);
-	gpio_clear(GPIOB, GPIO0);
-	delay_ms(100);
-	gpio_set(GPIOB, GPIO0);
-
-	usbd_dev = usbd_init(
-		&st_usbfs_v1_usb_driver,
-		&device,
-		&config,
-		usb_strings,
-		ARRAY_SIZE(usb_strings),
-		usbd_control_buffer,
-		sizeof(usbd_control_buffer)
-	);
-	usbd_register_reset_callback(usbd_dev, reset_cb);
-	usbd_register_set_config_callback(usbd_dev, set_config_cb);
-	usb_event_pending = 1;
 }
 
 /*** Main ***/
@@ -689,15 +295,7 @@ int main(void)
 			debug_putc(ch);
 		}
 
-		if (usb_event_pending) {
-			usbd_poll(usbd_dev);
-			usb_event_pending = 0;
-			nvic_clear_pending_irq(NVIC_USB_LP_CAN_RX0_IRQ);
-			nvic_enable_irq(NVIC_USB_LP_CAN_RX0_IRQ);
-		}
-
-		ep82_kick();
-
+		usb_loop();
 		wait_for_interrupt();
 	}
 

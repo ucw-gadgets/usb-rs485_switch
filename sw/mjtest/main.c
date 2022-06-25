@@ -36,6 +36,7 @@ static void clock_init(void)
 	rcc_periph_clock_enable(RCC_SPI2);
 	// rcc_periph_clock_enable(RCC_TIM4);
 	rcc_periph_clock_enable(RCC_ADC1);
+	rcc_periph_clock_enable(RCC_AFIO);
 
 	rcc_periph_reset_pulse(RST_GPIOA);
 	rcc_periph_reset_pulse(RST_GPIOB);
@@ -46,6 +47,7 @@ static void clock_init(void)
 	rcc_periph_reset_pulse(RST_SPI2);
 	// rcc_periph_reset_pulse(RST_TIM4);
 	rcc_periph_reset_pulse(RST_ADC1);
+	rcc_periph_reset_pulse(RST_AFIO);
 }
 
 static void gpio_init(void)
@@ -86,6 +88,9 @@ static void gpio_init(void)
 	// PC13 = debugging LED *
 	// PC14 = unused
 	// PC15 = unused
+
+	// Switch JTAG off to free up pins
+	gpio_primary_remap(AFIO_MAPR_SWJ_CFG_JTAG_OFF_SW_ON, 0);
 }
 
 static void debug_init(void)

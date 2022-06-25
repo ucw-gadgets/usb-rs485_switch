@@ -38,9 +38,12 @@ struct message_queue {
 };
 
 static struct message_queue idle_queue;		// free message structures
-static struct message_queue tx_queue[2];	// to send to the bus
-static struct message_node *tx_current;		// currently being sent
-static struct message_queue rx_queue;		// to pass to the host
+static struct message_queue bus_queue[2];	// to send to the bus
+static struct message_queue done_queue;		// to pass to the host
+
+static struct message_node *usb_rx_current;	// currently being received over USB
+static struct message_node *modbus_current[2];	// currently being handled on MODBUS
+static struct message_node *usb_tx_current;	// currently being sent over USB
 
 static inline bool queue_is_empty(struct message_queue *q)
 {
@@ -321,6 +324,20 @@ static bool set_port_params(uint port, struct urs485_port_params *par)
 	return true;
 }
 
+/*** Message ***/
+
+static void internal_error_reply(struct message_node *m, byte error_code)
+{
+	m->frame_size = 2;
+	m->frame[0] |= 0x80;
+	m->frame[1] = error_code;
+}
+
+static void got_msg_from_usb(struct message_node *m)
+{
+	// FIXME
+}
+
 /*** USB ***/
 
 static usbd_device *usbd_dev;
@@ -423,7 +440,7 @@ static const struct usb_config_descriptor config = {
 	.interface = ifaces,
 };
 
-static byte usb_configured;
+static bool usb_configured;
 static uint8_t usbd_control_buffer[64];
 
 static void dfu_detach_complete(usbd_device *dev UNUSED, struct usb_setup_data *req UNUSED)
@@ -509,13 +526,78 @@ static enum usbd_request_return_codes control_cb(
 	}
 }
 
-static byte usb_rx_buf[64];
+static byte usb_bulk_buffer[64];
+static uint usb_rx_pos;
+static uint usb_tx_pos;
+static bool usb_tx_in_flight;
+
+#define MSG_HEADER_SIZE offsetof(struct urs485_message, frame)
 
 static void ep01_cb(usbd_device *dev, uint8_t ep UNUSED)
 {
 	// We received a frame from the USB host
-	uint len = usbd_ep_read_packet(dev, 0x01, usb_rx_buf, sizeof(usb_rx_buf));
+	uint len = usbd_ep_read_packet(dev, 0x01, usb_bulk_buffer, sizeof(usb_bulk_buffer));
+	byte *pos = usb_bulk_buffer;
 	debug_printf("USB: Host sent %u bytes\n", len);
+
+	while (len) {
+		if (!usb_rx_current) {
+			usb_rx_current = queue_get(&idle_queue);
+			if (!usb_rx_current) {
+				debug_printf("USB: No receive buffer available\n");
+				usbd_ep_stall_set(dev, 0x01, 1);
+				return;
+			}
+			usb_rx_pos = 0;
+		}
+
+		uint goal = (usb_rx_pos < MSG_HEADER_SIZE) ? MSG_HEADER_SIZE : MSG_HEADER_SIZE + usb_rx_current->msg.frame_size;
+		uint want = goal - usb_rx_pos;
+		if (!want) {
+			debug_printf("USB: Received message #%04x of %u bytes\n", usb_rx_current->msg.message_id, want);
+			got_msg_from_usb(usb_rx_current);
+			usb_rx_current = NULL;
+		} else {
+			want = MIN(want, len);
+			memcpy((byte *) &usb_rx_current->msg + usb_rx_pos, pos, want);
+			usb_rx_pos += want;
+			pos += want;
+			len -= want;
+		}
+	}
+}
+
+static void ep82_kick(void)
+{
+	if (!usb_configured || usb_tx_in_flight)
+		return;
+
+	if (!usb_tx_current) {
+		usb_tx_current = queue_get(&done_queue);
+		if (!usb_tx_current)
+			return;
+		debug_printf("USB: Sending message #%04x\n", usb_tx_current->msg.message_id);
+		usb_tx_pos = 0;
+	}
+
+	uint goal = MSG_HEADER_SIZE + usb_tx_current->msg.frame_size;
+	uint len = MIN(goal - usb_tx_pos, 64);
+	usbd_ep_write_packet(usbd_dev, 0x82, (const byte *) &usb_tx_current->msg + usb_tx_pos, len);
+	usb_tx_in_flight = true;
+	usb_tx_pos += len;
+
+	if (usb_tx_pos == goal) {
+		debug_printf("USB: Sent\n");
+		queue_put(&idle_queue, usb_tx_current);
+		usb_tx_current = NULL;
+	}
+}
+
+static void ep82_cb(usbd_device *dev UNUSED, uint8_t ep UNUSED)
+{
+	// We completed sending a frame to the USB host
+	usb_tx_in_flight = false;
+	ep82_kick();
 }
 
 static void set_config_cb(usbd_device *dev, uint16_t wValue UNUSED)
@@ -531,13 +613,14 @@ static void set_config_cb(usbd_device *dev, uint16_t wValue UNUSED)
 		USB_REQ_TYPE_TYPE | USB_REQ_TYPE_RECIPIENT,
 		dfu_control_cb);
 	usbd_ep_setup(dev, 0x01, USB_ENDPOINT_ATTR_BULK, 64, ep01_cb);
-	usb_configured = 1;
+	usbd_ep_setup(dev, 0x82, USB_ENDPOINT_ATTR_BULK, 64, ep82_cb);
+	usb_configured = true;
 }
 
 static void reset_cb(void)
 {
 	debug_printf("USB: Reset\n");
-	usb_configured = 0;
+	usb_configured = false;
 }
 
 static volatile bool usb_event_pending;
@@ -612,6 +695,8 @@ int main(void)
 			nvic_clear_pending_irq(NVIC_USB_LP_CAN_RX0_IRQ);
 			nvic_enable_irq(NVIC_USB_LP_CAN_RX0_IRQ);
 		}
+
+		ep82_kick();
 
 		wait_for_interrupt();
 	}

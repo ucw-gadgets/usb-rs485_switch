@@ -11,3 +11,8 @@
 
 - Green LEDs are too dim – the 2k7 resistor between PWRENn and the
   LED is too big.
+
+- Inputs + and - of the INA180A1 amplifier are swapped.
+
+- Voltage limit for VIN (printed next to the power connector)
+  should be decreased to 26V because of INA180A1.

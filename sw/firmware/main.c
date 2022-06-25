@@ -22,6 +22,68 @@
 
 #include <string.h>
 
+/*** Message queues ***/
+
+#define MAX_IN_FLIGHT 2		// FIXME
+
+struct message_node {
+	struct message_node *next;
+	struct urs485_message msg;
+};
+
+static struct message_node message_buf[MAX_IN_FLIGHT];
+
+struct message_queue {
+	struct message_node *first, *last;
+};
+
+static struct message_queue idle_queue;		// free message structures
+static struct message_queue tx_queue[2];	// to send to the bus
+static struct message_node *tx_current;		// currently being sent
+static struct message_queue rx_queue;		// to pass to the host
+
+static inline bool queue_is_empty(struct message_queue *q)
+{
+	return !q->first;
+}
+
+static void queue_put(struct message_queue *q, struct message_node *m)
+{
+	if (q->last)
+		q->last->next = m;
+	else
+		q->first = m;
+	q->last = m;
+	m->next = NULL;
+}
+
+static struct message_node *queue_get(struct message_queue *q)
+{
+	struct message_node *m = q->first;
+	if (m) {
+		q->first = m->next;
+		if (!q->first)
+			q->last = NULL;
+	}
+	return m;
+}
+
+static void queues_init(void)
+{
+	for (uint i=0; i < MAX_IN_FLIGHT; i++)
+		queue_put(&idle_queue, &message_buf[i]);
+}
+
+/*** Global status ***/
+
+static struct urs485_port_params port_params[8];
+static struct urs485_port_status port_status[8];
+static struct urs485_power_status power_status;
+
+static const struct urs485_config global_config = {
+	.max_in_flight = MAX_IN_FLIGHT,
+};
+
 /*** Hardware init ***/
 
 static void clock_init(void)
@@ -203,10 +265,12 @@ static void reg_clear_flag(uint port, uint flag)
 	reg_state[port/2] &= ~((port & 1) ? flag : (flag << 4));
 }
 
+#if 0
 static void reg_toggle_flag(uint port, uint flag)
 {
 	reg_state[port/2] ^= (port & 1) ? flag : (flag << 4);
 }
+#endif
 
 /*** ADC ***/
 
@@ -234,6 +298,27 @@ static void adc_init(void)
 	adc_power_on(ADC1);
 	adc_reset_calibration(ADC1);
 	adc_calibrate(ADC1);
+}
+
+/*** Ports ***/
+
+static bool set_port_params(uint port, struct urs485_port_params *par)
+{
+	if (par->baud_rate < 1200 || par->baud_rate > 115200 ||
+	    par->parity > 2 ||
+	    par->powered > 1 ||
+	    !par->request_timeout)
+		return false;
+
+	port_params[port] = *par;
+
+	if (par->powered)
+		reg_set_flag(port, SF_PWREN);
+	else
+		reg_clear_flag(port, SF_PWREN);
+	reg_send();
+
+	return true;
 }
 
 /*** USB ***/
@@ -362,6 +447,68 @@ static enum usbd_request_return_codes dfu_control_cb(usbd_device *dev UNUSED,
 	return USBD_REQ_HANDLED;
 }
 
+static enum usbd_request_return_codes control_cb(
+	usbd_device *dev UNUSED,
+	struct usb_setup_data *req,
+	uint8_t **buf,
+	uint16_t *len,
+	void (**complete)(usbd_device *dev, struct usb_setup_data *req) UNUSED)
+{
+	uint index = req->wIndex;
+
+	if (req->bmRequestType == (USB_REQ_TYPE_IN | USB_REQ_TYPE_VENDOR | USB_REQ_TYPE_DEVICE)) {
+		debug_printf("USB: Control request IN %02x (index=%d, len=%d)\n", req->bRequest, index, *len);
+
+		const byte *reply = NULL;
+		uint reply_len = 0;
+
+		switch (req->bRequest) {
+			case URS485_CONTROL_GET_CONFIG:
+				reply = (const byte *) &global_config;
+				reply_len = sizeof(global_config);
+				break;
+			case URS485_CONTROL_GET_PORT_STATUS:
+				if (index >= 8)
+					return USBD_REQ_NOTSUPP;
+				reply = (const byte *) &port_status[index];
+				reply_len = sizeof(global_config);
+				break;
+			case URS485_CONTROL_GET_POWER_STATUS:
+				reply = (const byte *) &power_status;
+				reply_len = sizeof(power_status);
+				break;
+			default:
+				return USBD_REQ_NOTSUPP;
+		}
+
+		uint n = MIN(*len, reply_len);
+		memcpy(*buf, reply, n);
+		*len = n;
+		return USBD_REQ_HANDLED;
+	} else if (req->bmRequestType == (USB_REQ_TYPE_OUT | USB_REQ_TYPE_VENDOR | USB_REQ_TYPE_DEVICE)) {
+		debug_printf("USB: Control request OUT %02x (index=%d, len=%d)\n", req->bRequest, index, *len);
+
+		switch (req->bRequest) {
+			case URS485_CONTROL_SET_PORT_PARAMS:
+				if (index >= 8)
+					return USBD_REQ_NOTSUPP;
+				if (*len != sizeof(struct urs485_port_params))
+					return USBD_REQ_NOTSUPP;
+				struct urs485_port_params new_params;
+				memcpy(&new_params, *buf, sizeof(struct urs485_port_params));
+				if (!set_port_params(index, &new_params))
+					return USBD_REQ_NOTSUPP;
+				break;
+			default:
+				return USBD_REQ_NOTSUPP;
+		}
+
+		return USBD_REQ_HANDLED;
+	} else {
+		return USBD_REQ_NOTSUPP;
+	}
+}
+
 static byte usb_rx_buf[64];
 
 static void ep01_cb(usbd_device *dev, uint8_t ep UNUSED)
@@ -373,6 +520,11 @@ static void ep01_cb(usbd_device *dev, uint8_t ep UNUSED)
 
 static void set_config_cb(usbd_device *dev, uint16_t wValue UNUSED)
 {
+	usbd_register_control_callback(
+		dev,
+		USB_REQ_TYPE_VENDOR,
+		USB_REQ_TYPE_TYPE,
+		control_cb);
 	usbd_register_control_callback(
 		dev,
 		USB_REQ_TYPE_CLASS | USB_REQ_TYPE_INTERFACE,
@@ -437,6 +589,7 @@ int main(void)
 	tick_init();
 	adc_init();
 	usb_init();
+	queues_init();
 
 	debug_printf("USB-RS485 Switch (version %04x)\n", USB_RS485_USB_VERSION);
 

@@ -21,20 +21,29 @@
  *	All structure fields are little-endian.
  */
 
+#define MODBUS_MAX_DATA_SIZE 252
+
 struct urs485_message {
 	byte port;			// 0-7
-	byte slave_address;		// 0 for broadcast
-	byte function_code;
-	byte data_size;
+	byte frame_size;
 	u16 message_id;			// used to match replies with requests
-	// data follow
+	/*
+	 *  Internally, the frame has the following structure:
+	 *  	byte	slave_address;	// 0 for broadcast
+	 *  	byte	function_code;
+	 *  	byte	data[];
+	 *  	byte	crc[2];		// reserved for CRC, never sent over USB
+	 *
+	 *  Only frame_size bytes are sent over USB.
+	 */
+	byte frame[2 + MODBUS_MAX_DATA_SIZE + 2];
 };
 
 enum urs485_control_request {
-	URS485_CONTROL_GET_CONFIG,	// sends struct urs485_config
-	URS485_CONTROL_SET_PORT_PARAMS,	// accepts struct urs485_port_params (wIndex=port number)
-	URS485_CONTROL_GET_PORT_STATUS,	// sends struct urs485_port_status (wIndex=port number)
-	URS485_CONTROL_GET_POWER_STATUS,	// sends struct urs485_power_status
+	URS485_CONTROL_GET_CONFIG,	// in: sends struct urs485_config
+	URS485_CONTROL_SET_PORT_PARAMS,	// out: accepts struct urs485_port_params (wIndex=port number)
+	URS485_CONTROL_GET_PORT_STATUS,	// in: sends struct urs485_port_status (wIndex=port number)
+	URS485_CONTROL_GET_POWER_STATUS,	// in: sends struct urs485_power_status
 };
 
 struct urs485_config {
@@ -42,7 +51,7 @@ struct urs485_config {
 };
 
 struct urs485_port_params {
-	u32 baud_rate;
+	u32 baud_rate;			// 1200 to 115200
 	byte parity;			// 0=none (2 stop bits), 1=odd, 2=even
 	byte powered;			// 0=off, 1=on
 	u16 request_timeout;		// in milliseconds

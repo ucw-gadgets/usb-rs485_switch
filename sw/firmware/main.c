@@ -440,7 +440,6 @@ int main(void)
 
 	debug_printf("USB-RS485 Switch (version %04x)\n", USB_RS485_USB_VERSION);
 
-	byte t = 0;
 	u32 last_blink = 0;
 
 	for (;;) {

@@ -8,4 +8,6 @@ WITH_BOOT_LOADER=1
 WITH_DFU_FLASH=1
 DFU_ARGS=-d 4242:000b
 
+main.o: interface.h
+
 include $(STM32LIB)/mk/bluepill.mk

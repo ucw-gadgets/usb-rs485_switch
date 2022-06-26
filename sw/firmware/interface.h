@@ -21,10 +21,20 @@
  *	All structure fields are little-endian.
  */
 
+/*
+ *	Flow control:
+ *
+ *	The device has a limited number of slots for in-flight messages,
+ *	reported in the	urs485_config. However, when the client starts,
+ *	some slots can be busy from the previous client. So the device
+ *	opens up client's send window by sending synthetic replies marked
+ *	by port == 0xff.
+ */
+
 #define MODBUS_MAX_DATA_SIZE 252
 
 struct urs485_message {
-	byte port;			// 0-7
+	byte port;			// 0-7 (0xff for window open message)
 	byte frame_size;
 	u16 message_id;			// used to match replies with requests
 	/*

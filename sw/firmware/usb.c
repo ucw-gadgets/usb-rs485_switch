@@ -16,6 +16,7 @@
 
 static usbd_device *usbd_dev;
 static bool usb_configured;
+static u32 usb_generation;		// Incremented on each bus reset
 
 /*** Descriptors ***/
 
@@ -234,9 +235,12 @@ static void ep01_cb(usbd_device *dev, uint8_t ep UNUSED)
 			usb_rx_msg = queue_get(&idle_queue);
 			if (!usb_rx_msg) {
 				debug_printf("USB: No receive buffer available\n");
+				// The only chance to signal error is to stall the pipes
 				usbd_ep_stall_set(dev, 0x01, 1);
+				usbd_ep_stall_set(dev, 0x82, 1);
 				return;
 			}
+			usb_rx_msg->usb_generation = usb_generation;
 			usb_rx_pos = 0;
 		}
 
@@ -267,7 +271,15 @@ static void ep82_kick(void)
 		usb_tx_msg = queue_get(&done_queue);
 		if (!usb_tx_msg)
 			return;
-		debug_printf("USB: Sending message #%04x\n", usb_tx_msg->msg.message_id);
+		struct urs485_message *m = &usb_tx_msg->msg;
+		if (usb_tx_msg->usb_generation == usb_generation) {
+			debug_printf("USB: Sending message #%04x\n", m->message_id);
+		} else {
+			debug_printf("USB: Flushing previous-generation message\n");
+			m->port = 0xff;
+			m->frame_size = 0;
+			m->message_id = 0;
+		}
 		usb_tx_pos = 0;
 	}
 
@@ -308,13 +320,30 @@ static void set_config_cb(usbd_device *dev, uint16_t wValue UNUSED)
 	usbd_ep_setup(dev, 0x01, USB_ENDPOINT_ATTR_BULK, 64, ep01_cb);
 	usbd_ep_setup(dev, 0x82, USB_ENDPOINT_ATTR_BULK, 64, ep82_cb);
 	usb_configured = true;
+
+	// Increment USB generation and send all idle messages to the client,
+	// so that it can increase its send window.
+	usb_generation++;
+	struct message_node *n;
+	while (n = queue_get(&idle_queue))
+		queue_put(&done_queue, n);
+
+	// If there were in-progress transfers, cancel them
+	if (usb_rx_msg) {
+		queue_put(&done_queue, usb_rx_msg);
+		usb_rx_msg = NULL;
+	}
+	if (usb_tx_msg) {
+		queue_put(&done_queue, usb_tx_msg);
+		usb_tx_msg = NULL;
+	}
+	usb_tx_in_flight = false;
 }
 
 static void reset_cb(void)
 {
 	debug_printf("USB: Reset\n");
 	usb_configured = false;
-	usb_tx_in_flight = false;
 }
 
 static volatile bool usb_event_pending;

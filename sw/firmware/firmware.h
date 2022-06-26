@@ -20,6 +20,7 @@ void retry_loop(void);
 
 struct message_node {
 	struct message_node *next;
+	u32 usb_generation;
 	struct urs485_message msg;
 };
 

@@ -95,7 +95,8 @@ int main(void)
 			continue;
 		}
 		ASSERT(received == 2);
-		msg(L_INFO, "Config: queue size %u", get_u16_le(resp));
+		uint qsize = get_u16_le(resp);
+		msg(L_INFO, "Config: queue size %u", qsize);
 
 		struct urs485_port_params pp = {
 			.baud_rate = 9600,
@@ -108,7 +109,17 @@ int main(void)
 			continue;
 		}
 
-		for (uint i=0; i<2; i++) {
+		for (uint i=0; i<qsize; i++) {
+			byte rr[1024];
+
+			if (err = libusb_bulk_transfer(devh, 0x82, rr, sizeof(rr), &received, 1000)) {
+				usb_error("Receive failed: error %d", err);
+				return 1;
+			}
+			printf("Receive OK: %d bytes\n", received);
+		}
+
+		for (uint i=0; i<4; i++) {
 			struct urs485_message msg = {
 				.port = 9,
 				.frame_size = 2,

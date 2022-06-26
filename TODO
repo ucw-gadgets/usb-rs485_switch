@@ -18,5 +18,3 @@
   should be decreased to 26V because of INA180A1.
 
 == Firmware ==
-
-- Cancel in-flight messages when USB reset comes?

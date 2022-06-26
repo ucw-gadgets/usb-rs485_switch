@@ -31,6 +31,10 @@ void queue_put(struct message_queue *q, struct message_node *n)
 		q->first = n;
 	q->last = n;
 	n->next = NULL;
+
+	// We will not wait for an interrupt before the next iteration of the
+	// main loop, so that other modules get a chance to react quickly.
+	retry_loop();
 }
 
 struct message_node *queue_get(struct message_queue *q)
@@ -158,7 +162,7 @@ static void debug_init(void)
 
 /*** System ticks ***/
 
-static volatile u32 ms_ticks;
+volatile u32 ms_ticks;
 
 void sys_tick_handler(void)
 {
@@ -271,6 +275,13 @@ static void adc_init(void)
 
 /*** Main ***/
 
+static bool main_retry;
+
+void retry_loop(void)
+{
+	main_retry = true;
+}
+
 int main(void)
 {
 	clock_init();
@@ -288,6 +299,8 @@ int main(void)
 	u32 last_blink = 0;
 
 	for (;;) {
+		main_retry = false;
+
 		if (ms_ticks - last_blink >= 250) {
 			debug_led_toggle();
 			last_blink = ms_ticks;
@@ -300,7 +313,9 @@ int main(void)
 
 		bus_loop();
 		usb_loop();
-		wait_for_interrupt();
+
+		if (!main_retry)
+			wait_for_interrupt();
 	}
 
 	return 0;

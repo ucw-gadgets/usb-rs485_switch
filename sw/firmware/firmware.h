@@ -9,7 +9,10 @@
 
 /*** Utilities (main.c) ***/
 
+extern volatile u32 ms_ticks;
+
 void delay_ms(uint ms);
+void retry_loop(void);
 
 /*** Message queues (main.c) ***/
 

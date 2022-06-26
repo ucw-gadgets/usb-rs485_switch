@@ -40,18 +40,27 @@ struct channel {
 
 	byte rx_buf[256];
 	u16 rx_size;
+	u16 rx_timeout;			// in ms
+	u32 rx_start_at;		// ms_ticks when RX started
 	byte rx_bad;
 };
 
 static struct channel channels[2];
 
 enum mb_state {
-	STATE_IDLE,
+	STATE_IDLE,			// iff channel->current == NULL
 	STATE_TX,
 	STATE_TX_LAST,
 	STATE_TX_DONE,
 	STATE_RX,
 	STATE_RX_DONE,
+	STATE_BROADCAST_DONE,
+};
+
+enum mb_rx_bad {
+	RX_BAD_OK,
+	RX_BAD_CHAR,			// parity error, serial port overrun etc.
+	RX_BAD_OVERSIZE,
 };
 
 enum mb_error {
@@ -138,6 +147,7 @@ static void channel_activate_port(struct channel *c, uint port)
 
 		c->active_port = port;
 		c->port_stale = false;
+		c->rx_timeout = par->request_timeout;
 	}
 
 	reg_set_flag(port, SF_TXEN | SF_RXEN_N);
@@ -166,7 +176,8 @@ static void channel_rx_init(struct channel *c)
 {
 	c->state = STATE_RX;
 	c->rx_size = 0;
-	c->rx_bad = 0;
+	c->rx_bad = RX_BAD_OK;
+	c->rx_start_at = ms_ticks;
 
 	usart_set_mode(c->usart, USART_MODE_RX);
 	usart_enable_rx_interrupt(c->usart);
@@ -177,6 +188,7 @@ static void channel_rx_done(struct channel *c)
 	c->state = STATE_RX_DONE;
 	usart_disable_rx_interrupt(c->usart);
 	usart_disable(c->usart);
+	timer_disable_counter(c->usart);
 }
 
 static void channel_timer_isr(struct channel *c)
@@ -196,12 +208,12 @@ static void channel_usart_isr(struct channel *c)
 		uint ch = usart_recv(c->usart);
 		if (c->state == STATE_RX) {
 			if (status & (USART_SR_FE | USART_SR_ORE | USART_SR_NE)) {
-				c->rx_bad = 1;
+				c->rx_bad = RX_BAD_CHAR;
 			} else if (c->rx_size < 256) {
 				c->rx_buf[c->rx_size++] = ch;
 			} else {
 				// Frame too long
-				c->rx_bad = 2;
+				c->rx_bad = RX_BAD_OVERSIZE;
 			}
 			timer_set_period(c->timer, c->rx_char_timeout);
 			timer_generate_event(c->timer, TIM_EGR_UG);
@@ -226,9 +238,10 @@ static void channel_usart_isr(struct channel *c)
 			// Transfer of the last byte is complete. Release the bus.
 			USART_CR1(c->usart) &= ~USART_CR1_TCIE;
 			channel_tx_done(c);
-			// FIXME: Broadcasts have no reply
-			channel_rx_init(c);
-			// FIXME: Reply timeout
+			if (c->tx_buf[0])
+				channel_rx_init(c);
+			else
+				c->state = STATE_BROADCAST_DONE;
 		}
 	}
 }
@@ -252,6 +265,8 @@ void usart3_isr(void)
 {
 	channel_usart_isr(&channels[1]);
 }
+
+/*** CRC ***/
 
 static const byte crc_hi[] = {
 	0x00, 0xc1, 0x81, 0x40, 0x01, 0xc0, 0x80, 0x41, 0x01, 0xc0,
@@ -324,7 +339,8 @@ static u16 crc16(byte *buf, u16 len)
 	return (hi << 8 | lo);
 }
 
-// FIXME: Split to low-level and high-level parts
+/*** Upper layer ***/
+
 static bool channel_check_rx(struct channel *c)
 {
 	if (c->rx_bad) {
@@ -356,7 +372,7 @@ static bool channel_check_rx(struct channel *c)
 	return true;
 }
 
-static void channel_process_rx(struct channel *c)
+static void channel_rx_frame(struct channel *c)
 {
 	if (!channel_check_rx(c)) {
 		internal_error_reply(c->current, ERR_GATEWAY_TARGET_NO_RESPONSE);
@@ -367,18 +383,37 @@ static void channel_process_rx(struct channel *c)
 	}
 
 	queue_put(&done_queue, c->current);
+	c->state = STATE_IDLE;
+	c->current = NULL;
 }
 
-static void channel_loop(struct channel *c)
+static void channel_broadcast_done(struct channel *c)
 {
-	if (c->current) {
-		if (c->state != STATE_RX_DONE)
-			return;
-		channel_process_rx(c);
-		c->state = STATE_IDLE;
-		c->current = NULL;
-	}
+	struct urs485_message *m = &c->current->msg;
+	m->frame_size = 2;
+	m->frame[1] = 0;
 
+	queue_put(&done_queue, c->current);
+	c->state = STATE_IDLE;
+	c->current = NULL;
+}
+
+static void channel_check_timeout(struct channel *c)
+{
+	if (ms_ticks - c->rx_start_at <= c->rx_timeout)
+		return;
+
+	if (c->rx_size && c->rx_bad != RX_BAD_OVERSIZE)
+		return;
+
+	channel_rx_done(c);
+	internal_error_reply(c->current, ERR_GATEWAY_TARGET_NO_RESPONSE);
+	c->state = STATE_IDLE;
+	c->current = NULL;
+}
+
+static void channel_idle(struct channel *c)
+{
 	if (queue_is_empty(&c->send_queue))
 		return;
 
@@ -391,6 +426,26 @@ static void channel_loop(struct channel *c)
 
 	channel_activate_port(c, c->current->msg.port);
 	channel_tx_init(c);
+}
+
+static void channel_loop(struct channel *c)
+{
+	switch (c->state) {
+		case STATE_RX:
+			channel_check_timeout(c);
+			break;
+		case STATE_RX_DONE:
+			channel_rx_frame(c);
+			break;
+		case STATE_BROADCAST_DONE:
+			channel_broadcast_done(c);
+			break;
+		default: ;
+	}
+
+	if (c->state == STATE_IDLE)
+		channel_idle(c);
+
 }
 
 void bus_loop(void)

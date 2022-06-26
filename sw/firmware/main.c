@@ -69,11 +69,12 @@ static void clock_init(void)
 	rcc_periph_clock_enable(RCC_GPIOA);
 	rcc_periph_clock_enable(RCC_GPIOB);
 	rcc_periph_clock_enable(RCC_GPIOC);
-	rcc_periph_clock_enable(RCC_USART1);
-	rcc_periph_clock_enable(RCC_USART2);
-	rcc_periph_clock_enable(RCC_USART3);
+	rcc_periph_clock_enable(RCC_USART1);	// channel 0
+	rcc_periph_clock_enable(RCC_USART2);	// debugging
+	rcc_periph_clock_enable(RCC_USART3);	// channel 1
 	rcc_periph_clock_enable(RCC_SPI2);
-	// rcc_periph_clock_enable(RCC_TIM4);
+	rcc_periph_clock_enable(RCC_TIM2);	// channel 0
+	rcc_periph_clock_enable(RCC_TIM3);	// channel 1
 	rcc_periph_clock_enable(RCC_ADC1);
 	rcc_periph_clock_enable(RCC_AFIO);
 
@@ -84,7 +85,8 @@ static void clock_init(void)
 	rcc_periph_reset_pulse(RST_USART2);
 	rcc_periph_reset_pulse(RST_USART3);
 	rcc_periph_reset_pulse(RST_SPI2);
-	// rcc_periph_reset_pulse(RST_TIM4);
+	rcc_periph_reset_pulse(RST_TIM2);
+	rcc_periph_reset_pulse(RST_TIM3);
 	rcc_periph_reset_pulse(RST_ADC1);
 	rcc_periph_reset_pulse(RST_AFIO);
 }
@@ -279,6 +281,7 @@ int main(void)
 	adc_init();
 	usb_init();
 	queues_init();
+	bus_init();
 
 	debug_printf("USB-RS485 Switch (version %04x)\n", USB_RS485_USB_VERSION);
 
@@ -295,6 +298,7 @@ int main(void)
 			debug_putc(ch);
 		}
 
+		bus_loop();
 		usb_loop();
 		wait_for_interrupt();
 	}

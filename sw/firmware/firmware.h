@@ -60,9 +60,12 @@ void reg_toggle_flag(uint port, uint flag);
 
 #define MSG_HEADER_SIZE offsetof(struct urs485_message, frame)
 
-void got_msg_from_usb(struct message_node *m);
+void bus_init(void);
+void bus_loop(void);
 
 bool set_port_params(uint port, struct urs485_port_params *par);
+
+void got_msg_from_usb(struct message_node *m);
 
 /*** USB (usb.c) ***/
 

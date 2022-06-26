@@ -61,8 +61,6 @@ void reg_toggle_flag(uint port, uint flag);
 
 /*** MODBUS (bus.c) ***/
 
-#define MSG_HEADER_SIZE offsetof(struct urs485_message, frame)
-
 void bus_init(void);
 void bus_loop(void);
 

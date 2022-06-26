@@ -41,9 +41,9 @@ static const struct usb_device_descriptor device = {
 	.bDeviceSubClass = 0,
 	.bDeviceProtocol = 0,
 	.bMaxPacketSize0 = 64,
-	.idVendor = USB_RS485_USB_VENDOR,
-	.idProduct = USB_RS485_USB_PRODUCT,
-	.bcdDevice = USB_RS485_USB_VERSION,
+	.idVendor = URS485_USB_VENDOR,
+	.idProduct = URS485_USB_PRODUCT,
+	.bcdDevice = URS485_USB_VERSION,
 	.iManufacturer = STR_MANUFACTURER,
 	.iProduct = STR_PRODUCT,
 	.iSerialNumber = STR_SERIAL,
@@ -51,10 +51,18 @@ static const struct usb_device_descriptor device = {
 };
 
 static const struct usb_endpoint_descriptor endpoints[] = {{
-	// Bulk end-point for sending LED values
+	// Bulk end-point for sending requests
 	.bLength = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType = USB_DT_ENDPOINT,
 	.bEndpointAddress = 0x01,
+	.bmAttributes = USB_ENDPOINT_ATTR_BULK,
+	.wMaxPacketSize = 64,
+	.bInterval = 1,
+}, {
+	// Bulk end-point for receiving replies
+	.bLength = USB_DT_ENDPOINT_SIZE,
+	.bDescriptorType = USB_DT_ENDPOINT,
+	.bEndpointAddress = 0x82,
 	.bmAttributes = USB_ENDPOINT_ATTR_BULK,
 	.wMaxPacketSize = 64,
 	.bInterval = 1,
@@ -65,7 +73,7 @@ static const struct usb_interface_descriptor iface = {
 	.bDescriptorType = USB_DT_INTERFACE,
 	.bInterfaceNumber = 0,
 	.bAlternateSetting = 0,
-	.bNumEndpoints = 1,
+	.bNumEndpoints = 2,
 	.bInterfaceClass = 0xFF,
 	.bInterfaceSubClass = 0,
 	.bInterfaceProtocol = 0,
@@ -232,18 +240,20 @@ static void ep01_cb(usbd_device *dev, uint8_t ep UNUSED)
 			usb_rx_pos = 0;
 		}
 
-		uint goal = (usb_rx_pos < MSG_HEADER_SIZE) ? MSG_HEADER_SIZE : MSG_HEADER_SIZE + usb_rx_msg->msg.frame_size;
+		uint goal = (usb_rx_pos < URS485_MSGHDR_SIZE) ? URS485_MSGHDR_SIZE : URS485_MSGHDR_SIZE + usb_rx_msg->msg.frame_size;
 		uint want = goal - usb_rx_pos;
-		if (!want) {
-			debug_printf("USB: Received message #%04x of %u bytes\n", usb_rx_msg->msg.message_id, want);
-			got_msg_from_usb(usb_rx_msg);
-			usb_rx_msg = NULL;
-		} else {
+		if (want > 0) {
 			want = MIN(want, len);
 			memcpy((byte *) &usb_rx_msg->msg + usb_rx_pos, pos, want);
 			usb_rx_pos += want;
 			pos += want;
 			len -= want;
+		}
+
+		if (usb_rx_pos >= URS485_MSGHDR_SIZE && usb_rx_pos == URS485_MSGHDR_SIZE + usb_rx_msg->msg.frame_size) {
+			debug_printf("USB: Received message #%04x of %u bytes\n", usb_rx_msg->msg.message_id, usb_rx_pos);
+			got_msg_from_usb(usb_rx_msg);
+			usb_rx_msg = NULL;
 		}
 	}
 }
@@ -261,7 +271,7 @@ static void ep82_kick(void)
 		usb_tx_pos = 0;
 	}
 
-	uint goal = MSG_HEADER_SIZE + usb_tx_msg->msg.frame_size;
+	uint goal = URS485_MSGHDR_SIZE + usb_tx_msg->msg.frame_size;
 	uint len = MIN(goal - usb_tx_pos, 64);
 	usbd_ep_write_packet(usbd_dev, 0x82, (const byte *) &usb_tx_msg->msg + usb_tx_pos, len);
 	usb_tx_in_flight = true;
@@ -304,6 +314,7 @@ static void reset_cb(void)
 {
 	debug_printf("USB: Reset\n");
 	usb_configured = false;
+	usb_tx_in_flight = false;
 }
 
 static volatile bool usb_event_pending;

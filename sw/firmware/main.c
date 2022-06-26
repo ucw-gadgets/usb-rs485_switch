@@ -294,7 +294,7 @@ int main(void)
 	queues_init();
 	bus_init();
 
-	debug_printf("USB-RS485 Switch (version %04x)\n", USB_RS485_USB_VERSION);
+	debug_printf("USB-RS485 Switch (version %04x)\n", URS485_USB_VERSION);
 
 	u32 last_blink = 0;
 

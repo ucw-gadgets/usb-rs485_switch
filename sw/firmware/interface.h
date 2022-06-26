@@ -4,9 +4,9 @@
  *	(c) 2022 Martin Mareš <mj@ucw.cz>
  */
 
-#define USB_RS485_USB_VENDOR 0x4242
-#define USB_RS485_USB_PRODUCT 0x000b
-#define USB_RS485_USB_VERSION 0x0100
+#define URS485_USB_VENDOR 0x4242
+#define URS485_USB_PRODUCT 0x000b
+#define URS485_USB_VERSION 0x0100
 
 /*
  *	Endpoints:
@@ -38,6 +38,8 @@ struct urs485_message {
 	 */
 	byte frame[2 + MODBUS_MAX_DATA_SIZE + 2];
 };
+
+#define URS485_MSGHDR_SIZE offsetof(struct urs485_message, frame)
 
 enum urs485_control_request {
 	URS485_CONTROL_GET_CONFIG,	// in: sends struct urs485_config

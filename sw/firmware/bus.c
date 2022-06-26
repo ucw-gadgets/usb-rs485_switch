@@ -18,8 +18,10 @@
 
 #ifdef MODBUS_DEBUG
 #define DEBUG debug_printf
+#define CDEBUG(c, msg, ...) debug_printf("MODBUS%d: " msg, c->id, ## __VA_ARGS__)
 #else
-#define DEBUG(xxx, ...) do { } while (0)
+#define DEBUG( msg, ...) do { } while (0)
+#define CDEBUG(c, msg...) do { } while (0)
 #endif
 
 struct channel {
@@ -28,11 +30,12 @@ struct channel {
 	u32 usart;
 	u32 timer;
 
+	byte id;
+	byte state;			// STATE_xxx
 	byte active_port;		// 0xff if none
 	bool port_stale;		// active port needs reconfiguration
-	u16 rx_char_timeout;
 
-	byte state;			// STATE_xxx
+	u16 rx_char_timeout;
 
 	byte *tx_buf;
 	u16 tx_pos;
@@ -80,6 +83,8 @@ bool set_port_params(uint port, struct urs485_port_params *par)
 	    !par->request_timeout)
 		return false;
 
+	DEBUG("Setting up port %u (rate=%u, par=%u, power=%u, timeout=%u)\n",
+		port, (uint) par->baud_rate, par->parity, par->powered, par->request_timeout);
 	port_params[port] = *par;
 
 	if (par->powered)
@@ -98,7 +103,7 @@ bool set_port_params(uint port, struct urs485_port_params *par)
 static void internal_error_reply(struct message_node *n, byte error_code)
 {
 	struct urs485_message *m = &n->msg;
-	debug_printf("Msg #%04x: Internal error %d\n", m->message_id, error_code);
+	DEBUG("Msg #%04x: Internal error %d\n", m->message_id, error_code);
 	m->frame_size = 2;
 	m->frame[0] |= 0x80;
 	m->frame[1] = error_code;
@@ -108,6 +113,8 @@ static void internal_error_reply(struct message_node *n, byte error_code)
 static void channel_activate_port(struct channel *c, uint port)
 {
 	if (c->active_port != port || c->port_stale) {
+		CDEBUG(c, "Activating port %d\n", port);
+
 		if (c->active_port != 0xff) {
 			// FIXME: Proper activity LEDs
 			reg_clear_flag(c->active_port, SF_LED | SF_TXEN);
@@ -345,13 +352,13 @@ static bool channel_check_rx(struct channel *c)
 {
 	if (c->rx_bad) {
 		// FIXME: Error counters
-		DEBUG("MODBUS: RX bad\n");
+		CDEBUG(c, "RX bad\n");
 		return false;
 	}
 	
 	if (c->rx_size < 4) {
 		// FIXME: Error counters
-		DEBUG("MODBUS: RX undersize\n");
+		CDEBUG(c, "RX undersize\n");
 		return false;
 	}
 
@@ -359,13 +366,13 @@ static bool channel_check_rx(struct channel *c)
 	u16 rx_crc = (c->rx_buf[c->rx_size-2] << 8) | c->rx_buf[c->rx_size-1];
 	if (crc != rx_crc) {
 		// FIXME: Error counters?
-		DEBUG("MODBUS: Bad CRC\n");
+		CDEBUG(c, "Bad CRC\n");
 		return false;
 	}
 
 	if (c->current->msg.frame[0] != c->rx_buf[0]) {
 		// FIXME: Error counters?
-		DEBUG("MODBUS: Bad sender\n");
+		CDEBUG(c, "Bad sender\n");
 		return false;
 	}
 
@@ -380,6 +387,7 @@ static void channel_rx_frame(struct channel *c)
 		struct urs485_message *m = &c->current->msg;
 		m->frame_size = c->rx_size - 2;
 		memcpy(m->frame, c->rx_buf, m->frame_size);
+		CDEBUG(c, "Msg #%04x: Received %d bytes\n", m->message_id, c->rx_size);
 	}
 
 	queue_put(&done_queue, c->current);
@@ -392,6 +400,7 @@ static void channel_broadcast_done(struct channel *c)
 	struct urs485_message *m = &c->current->msg;
 	m->frame_size = 2;
 	m->frame[1] = 0;
+	CDEBUG(c, "Msg #%04x: Broadcast done\n", m->message_id);
 
 	queue_put(&done_queue, c->current);
 	c->state = STATE_IDLE;
@@ -423,6 +432,7 @@ static void channel_idle(struct channel *c)
 	u16 crc = crc16(m->frame, m->frame_size);
 	m->frame[m->frame_size] = crc >> 8;
 	m->frame[m->frame_size + 1] = crc;
+	CDEBUG(c, "Msg #%04x: Sending %d bytes\n", m->message_id, m->frame_size + 2);
 
 	channel_activate_port(c, c->current->msg.port);
 	channel_tx_init(c);
@@ -484,6 +494,7 @@ void bus_init(void)
 	// Channel 0: USART1 (PA9 = TXD1, PA10 = RXD1)
 	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO9);
 	gpio_set_mode(GPIOA, GPIO_MODE_INPUT, GPIO_CNF_INPUT_FLOAT, GPIO10);
+	channels[0].id = 0;
 	channels[0].usart = USART1;
 	channels[0].timer = TIM2;
 	nvic_enable_irq(NVIC_USART1_IRQ);
@@ -493,6 +504,7 @@ void bus_init(void)
 	// Channel 1: USART3 (PB10 = TXD3, PB11 = RXD3)
 	gpio_set_mode(GPIOB, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO10);
 	gpio_set_mode(GPIOB, GPIO_MODE_INPUT, GPIO_CNF_INPUT_FLOAT, GPIO11);
+	channels[1].id = 1;
 	channels[1].usart = USART3;
 	channels[1].timer = TIM3;
 	nvic_enable_irq(NVIC_USART3_IRQ);

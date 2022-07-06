@@ -18,3 +18,5 @@
   should be decreased to 26V because of INA180A1.
 
 == Firmware ==
+
+- Add serial number to USB descriptors not only in DFU mode

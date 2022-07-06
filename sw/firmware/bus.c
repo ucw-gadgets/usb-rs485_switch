@@ -124,9 +124,10 @@ static void channel_activate_port(struct channel *c, uint port)
 		reg_set_flag(port, SF_LED);
 
 		struct urs485_port_params *par = &port_params[port];
+		usart_disable(c->usart);
 		usart_set_baudrate(c->usart, par->baud_rate);
 		switch (par->parity) {
-			case 0:		// none
+			default:	// none
 				usart_set_databits(c->usart, 8);
 				usart_set_stopbits(c->usart, USART_STOPBITS_2);
 				usart_set_parity(c->usart, USART_PARITY_NONE);
@@ -142,6 +143,8 @@ static void channel_activate_port(struct channel *c, uint port)
 				usart_set_parity(c->usart, USART_PARITY_EVEN);
 				break;
 		}
+		usart_set_flow_control(c->usart, USART_FLOWCONTROL_NONE);
+		usart_enable(c->usart);
 
 		if (par->baud_rate <= 19200) {
 			// For low baud rates, the standard specifies timeout of 1.5 character times
@@ -163,6 +166,7 @@ static void channel_activate_port(struct channel *c, uint port)
 
 static void channel_tx_init(struct channel *c)
 {
+	debug_printf("tx_init\n");
 	c->state = STATE_TX;
 	c->tx_buf = c->current->msg.frame;
 	c->tx_pos = 0;
@@ -170,7 +174,6 @@ static void channel_tx_init(struct channel *c)
 
 	usart_set_mode(c->usart, USART_MODE_TX);
 	usart_enable_tx_interrupt(c->usart);
-	usart_enable(c->usart);
 }
 
 static void channel_tx_done(struct channel *c)
@@ -194,7 +197,7 @@ static void channel_rx_done(struct channel *c)
 {
 	c->state = STATE_RX_DONE;
 	usart_disable_rx_interrupt(c->usart);
-	usart_disable(c->usart);
+	usart_set_mode(c->usart, 0);
 	timer_disable_counter(c->usart);
 }
 
@@ -230,9 +233,11 @@ static void channel_usart_isr(struct channel *c)
 
 	if (c->state == STATE_TX) {
 		if (status & USART_SR_TXE) {
+			debug_putc('#');
 			if (c->tx_pos < c->tx_size) {
 				usart_send(c->usart, c->tx_buf[c->tx_pos++]);
 			} else {
+				debug_putc('@');
 				// The transmitter is double-buffered, so at this moment, it is transmitting
 				// the last byte of the frame. Wait until transfer is completed.
 				usart_disable_tx_interrupt(c->usart);
@@ -243,6 +248,7 @@ static void channel_usart_isr(struct channel *c)
 	} else if (c->state == STATE_TX_LAST) {
 		if (status & USART_SR_TC) {
 			// Transfer of the last byte is complete. Release the bus.
+			debug_putc('>');
 			USART_CR1(c->usart) &= ~USART_CR1_TCIE;
 			channel_tx_done(c);
 			if (c->tx_buf[0])
@@ -476,8 +482,6 @@ void got_msg_from_usb(struct message_node *n)
 
 static void channel_init(struct channel *c)
 {
-	usart_set_flow_control(c->usart, USART_FLOWCONTROL_NONE);
-
 	timer_set_prescaler(c->timer, CPU_CLOCK_MHZ-1);	// 1 tick = 1 μs
 	timer_set_mode(c->timer, TIM_CR1_CKD_CK_INT, TIM_CR1_CMS_EDGE, TIM_CR1_DIR_DOWN);
 	timer_update_on_overflow(c->timer);

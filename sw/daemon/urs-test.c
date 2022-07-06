@@ -102,9 +102,9 @@ int main(void)
 			.baud_rate = 9600,
 			.parity = 1,
 			.powered = 0,
-			.request_timeout = 5000,
+			.request_timeout = 2000,
 		};
-		if ((received = libusb_control_transfer(devh, LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR, URS485_CONTROL_SET_PORT_PARAMS, 0, 3, (byte *) &pp, sizeof(pp), 1000)) < 0) {
+		if ((received = libusb_control_transfer(devh, LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR, URS485_CONTROL_SET_PORT_PARAMS, 0, 1, (byte *) &pp, sizeof(pp), 1000)) < 0) {
 			usb_error("Receive failed: error %d", received);
 			continue;
 		}
@@ -119,12 +119,12 @@ int main(void)
 			printf("Receive OK: %d bytes\n", received);
 		}
 
-		for (uint i=0; i<4; i++) {
+		for (uint i=0; i<1; i++) {
 			struct urs485_message msg = {
-				.port = 9,
+				.port = 1,
 				.frame_size = 2,
 				.message_id = 0xcafe + i,
-				.frame = { 0x12, 0x34 },
+				.frame = { 0xaa, 0x34 },
 			};
 			if (err = libusb_bulk_transfer(devh, 0x01, (byte *) &msg, URS485_MSGHDR_SIZE + msg.frame_size, &received, 2000)) {
 				usb_error("Send failed: error %d", err);
@@ -136,7 +136,7 @@ int main(void)
 		for (;;) {
 			byte rr[1024];
 
-			if (err = libusb_bulk_transfer(devh, 0x82, rr, sizeof(rr), &received, 1000)) {
+			if (err = libusb_bulk_transfer(devh, 0x82, rr, sizeof(rr), &received, 5000)) {
 				usb_error("Receive failed: error %d", err);
 				return 1;
 			}

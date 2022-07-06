@@ -64,6 +64,15 @@ const struct urs485_config global_config = {
 	.max_in_flight = MAX_IN_FLIGHT,
 };
 
+static void params_init(void)
+{
+	for (int i=0; i<8; i++) {
+		struct urs485_port_params *pp = &port_params[i];
+		pp->baud_rate = 9600;
+		pp->request_timeout = 1000;
+	}
+}
+
 /*** Hardware init ***/
 
 static void clock_init(void)
@@ -287,6 +296,7 @@ int main(void)
 	clock_init();
 	gpio_init();
 	debug_init();
+	params_init();
 	reg_init();
 	tick_init();
 	adc_init();

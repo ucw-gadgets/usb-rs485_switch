@@ -122,6 +122,7 @@ static void channel_activate_port(struct channel *c, uint port)
 		}
 
 		reg_set_flag(port, SF_LED);
+		reg_send();
 
 		struct urs485_port_params *par = &port_params[port];
 		usart_disable(c->usart);
@@ -159,14 +160,10 @@ static void channel_activate_port(struct channel *c, uint port)
 		c->port_stale = false;
 		c->rx_timeout = par->request_timeout;
 	}
-
-	reg_set_flag(port, SF_TXEN | SF_RXEN_N);
-	reg_send();
 }
 
 static void channel_tx_init(struct channel *c)
 {
-	debug_printf("tx_init\n");
 	c->state = STATE_TX;
 	c->tx_buf = c->current->msg.frame;
 	c->tx_pos = 0;
@@ -174,6 +171,9 @@ static void channel_tx_init(struct channel *c)
 
 	usart_set_mode(c->usart, USART_MODE_TX);
 	usart_enable_tx_interrupt(c->usart);
+
+	reg_set_flag(c->active_port, SF_TXEN | SF_RXEN_N);
+	reg_send();
 }
 
 static void channel_tx_done(struct channel *c)
@@ -188,6 +188,9 @@ static void channel_rx_init(struct channel *c)
 	c->rx_size = 0;
 	c->rx_bad = RX_BAD_OK;
 	c->rx_start_at = ms_ticks;
+
+	reg_clear_flag(c->active_port, SF_TXEN | SF_RXEN_N);
+	reg_send();
 
 	usart_set_mode(c->usart, USART_MODE_RX);
 	usart_enable_rx_interrupt(c->usart);
@@ -233,11 +236,9 @@ static void channel_usart_isr(struct channel *c)
 
 	if (c->state == STATE_TX) {
 		if (status & USART_SR_TXE) {
-			debug_putc('#');
 			if (c->tx_pos < c->tx_size) {
 				usart_send(c->usart, c->tx_buf[c->tx_pos++]);
 			} else {
-				debug_putc('@');
 				// The transmitter is double-buffered, so at this moment, it is transmitting
 				// the last byte of the frame. Wait until transfer is completed.
 				usart_disable_tx_interrupt(c->usart);
@@ -248,7 +249,6 @@ static void channel_usart_isr(struct channel *c)
 	} else if (c->state == STATE_TX_LAST) {
 		if (status & USART_SR_TC) {
 			// Transfer of the last byte is complete. Release the bus.
-			debug_putc('>');
 			USART_CR1(c->usart) &= ~USART_CR1_TCIE;
 			channel_tx_done(c);
 			if (c->tx_buf[0])
@@ -358,13 +358,13 @@ static bool channel_check_rx(struct channel *c)
 {
 	if (c->rx_bad) {
 		// FIXME: Error counters
-		CDEBUG(c, "RX bad\n");
+		CDEBUG(c, "RX bad %d after %d\n", c->rx_bad, c->rx_size);
 		return false;
 	}
 	
 	if (c->rx_size < 4) {
 		// FIXME: Error counters
-		CDEBUG(c, "RX undersize\n");
+		CDEBUG(c, "RX undersize %d\n", c->rx_size);
 		return false;
 	}
 

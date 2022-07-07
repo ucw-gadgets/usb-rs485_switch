@@ -64,9 +64,15 @@ struct urs485_config {
 
 struct urs485_port_params {
 	u32 baud_rate;			// 1200 to 115200
-	byte parity;			// 0=none (2 stop bits), 1=odd, 2=even
+	byte parity;			// URS485_PARITY_xxx
 	byte powered;			// 0=off, 1=on
 	u16 request_timeout;		// in milliseconds
+};
+
+enum urs485_parity {
+	URS485_PARITY_NONE = 0,
+	URS485_PARITY_ODD = 1,
+	URS485_PARITY_EVEN = 2,		// recommended by MODBUS standard
 };
 
 struct urs485_port_status {

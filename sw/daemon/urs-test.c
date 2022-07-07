@@ -99,12 +99,12 @@ int main(void)
 		msg(L_INFO, "Config: queue size %u", qsize);
 
 		struct urs485_port_params pp = {
-			.baud_rate = 9600,
-			.parity = 1,
+			.baud_rate = 19200,
+			.parity = URS485_PARITY_EVEN,
 			.powered = 0,
 			.request_timeout = 2000,
 		};
-		if ((received = libusb_control_transfer(devh, LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR, URS485_CONTROL_SET_PORT_PARAMS, 0, 1, (byte *) &pp, sizeof(pp), 1000)) < 0) {
+		if ((received = libusb_control_transfer(devh, LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR, URS485_CONTROL_SET_PORT_PARAMS, 0, 2, (byte *) &pp, sizeof(pp), 1000)) < 0) {
 			usb_error("Receive failed: error %d", received);
 			continue;
 		}
@@ -121,10 +121,10 @@ int main(void)
 
 		for (uint i=0; i<1; i++) {
 			struct urs485_message msg = {
-				.port = 1,
+				.port = 2,
 				.frame_size = 2,
 				.message_id = 0xcafe + i,
-				.frame = { 0xaa, 0x34 },
+				.frame = { 42, 0x34 },
 			};
 			if (err = libusb_bulk_transfer(devh, 0x01, (byte *) &msg, URS485_MSGHDR_SIZE + msg.frame_size, &received, 2000)) {
 				usb_error("Send failed: error %d", err);

@@ -438,7 +438,7 @@ static void channel_idle(struct channel *c)
 	u16 crc = crc16(m->frame, m->frame_size);
 	m->frame[m->frame_size] = crc >> 8;
 	m->frame[m->frame_size + 1] = crc;
-	CDEBUG(c, "Msg #%04x: Sending %d bytes\n", m->message_id, m->frame_size + 2);
+	CDEBUG(c, "Msg #%04x: Sending %d bytes to port %d\n", m->message_id, m->frame_size + 2, c->current->msg.port);
 
 	channel_activate_port(c, c->current->msg.port);
 	channel_tx_init(c);

@@ -69,6 +69,7 @@ static void params_init(void)
 	for (int i=0; i<8; i++) {
 		struct urs485_port_params *pp = &port_params[i];
 		pp->baud_rate = 9600;
+		pp->parity = URS485_PARITY_EVEN;
 		pp->request_timeout = 1000;
 	}
 }

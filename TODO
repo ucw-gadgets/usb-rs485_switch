@@ -25,3 +25,6 @@
 - Add serial number to USB descriptors not only in DFU mode
 
 - Enforce minimal inter-packet times.
+
+- Numbering of ports: internally, we are using 0 (right) to 7 (left).
+  Should we use 1 (left) to 8 (right) in user-facing parts?

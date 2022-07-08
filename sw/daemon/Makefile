@@ -7,14 +7,17 @@ USB_LIBS := $(shell $(PC) --libs libusb-1.0)
 CFLAGS=-O2 -Wall -Wextra -Wno-sign-compare -Wno-parentheses -Wstrict-prototypes -Wmissing-prototypes $(UCW_CFLAGS) $(USB_CFLAGS)
 LDLIBS=$(UCW_LIBS) $(USB_LIBS)
 
-all: urs-test
+all: urs485-daemon
 
-urs-test.o: urs-test.c ../firmware/interface.h
+urs485-daemon: urs485-daemon.o usb.o
 
-#install: burrow-bsbd
-#	install burrow-bsbd /usr/local/sbin/
+urs485-daemon.o: urs485-daemon.c usb.h ../firmware/interface.h
+usb.o: usb.c usb.h
+
+install: urs485-daemon
+	install urs485-daemon /usr/local/sbin/
 
 clean:
-	rm -f *.o urs-test
+	rm -f *.o urs485-daemon
 
 .PHONY: all install clean

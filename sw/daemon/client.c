@@ -40,6 +40,12 @@ void msg_free(struct message *m)
 
 void msg_send_reply(struct message *m)
 {
+	if (m->request[0] == 0) {
+		CLIENT_DBG(m->client, "Not replying to broadcast #%04x", m->client_transaction_id);
+		msg_free(m);
+		return;
+	}
+
 	struct main_rec_io *rio = &m->client->rio;
 	CLIENT_DBG(m->client, "Sending frame #%04x of %u bytes", m->client_transaction_id, m->reply_size);
 
@@ -56,14 +62,7 @@ void msg_send_reply(struct message *m)
 
 void msg_send_error_reply(struct message *m, enum modbus_error err)
 {
-	if (m->request[0] == 0) {
-		// We do not reply to broadcasts
-		CLIENT_DBG(m->client, "Not sending error reply %u to a broadcast", err);
-		msg_free(m);
-		return;
-	}
-
-	CLIENT_DBG(m->client, "Error code %02x", err);
+	CLIENT_DBG(m->client, "Message #%04x failed with error %02x", m->client_transaction_id, err);
 	m->reply[0] = m->request[0];
 	m->reply[1] = m->request[1] | 0x80;
 	m->reply[2] = err;
@@ -144,9 +143,7 @@ static uint sk_read_handler(struct main_rec_io *rio)
 
 	CLIENT_DBG(client, "Received frame #%04x of %u bytes for port %d", m->client_transaction_id, m->request_size, m->port->port_number);
 
-	// FIXME: Enqueue the message for processing
 	// FIXME: Limit maximum number of queued messages by client
-	msg_send_error_reply(m, MODBUS_ERR_ILLEGAL_FUNCTION);
 
 	rec_io_set_timeout(rio, SOCKET_TIMEOUT);
 	return sizeof(struct tcp_modbus_header) + len;

@@ -20,11 +20,11 @@ static struct main_timer usb_connect_timer;
 static struct libusb_device_handle *usb_devh;
 
 static struct libusb_transfer *ctrl_transfer, *rx_transfer, *tx_transfer;
+static byte ctrl_in_flight, rx_in_flight, tx_in_flight;
 
 static byte ctrl_buffer[256];
 
 static struct urs485_message rx_message, tx_message;
-static byte rx_in_flight, tx_in_flight;
 static uint tx_window;
 
 // States of USB connection
@@ -50,25 +50,105 @@ static void usb_error(const char *fmt, ...)
 	usb_state = USTATE_BROKEN;
 }
 
+static void usb_reset(void)
+{
+	ASSERT(!ctrl_in_flight && !rx_in_flight && !tx_in_flight);
+	tx_window = 0;
+
+	usb_state = USTATE_GET_DEV_CONFIG;
+	startup_scheduler();
+}
+
 bool usb_is_ready(void)
 {	
-	// If there is no device connect, we generate internal errors for all messages
-	if (!usb_devh)
+	// If the switch is not ready, we generate internal errors for all messages
+	if (usb_state != USTATE_WORKING)
 		return true;
 
-	return false;	// FIXME
+	return (!tx_in_flight && tx_window > 0);
+}
+
+static void tx_callback(struct libusb_transfer *xfer)
+{
+	DBG("USB: Bulk TX done (status=%d, len=%d/%d)", xfer->status, xfer->actual_length, xfer->length);
+	tx_in_flight = false;
+
+	if (xfer->status != LIBUSB_TRANSFER_COMPLETED)
+		usb_error("Bulk TX transfer failed with status %d", xfer->status);
+}
+
+static void usb_gen_id(struct message *m)
+{
+	static u16 usb_id;
+
+	for (;;) {
+		usb_id++;
+		bool used = false;
+		CLIST_FOR_EACH(struct message *, n, busy_messages_qn)
+			if (n != m && n->usb_message_id == usb_id) {
+				used = true;
+				break;
+			}
+		if (!used) {
+			m->usb_message_id = usb_id;
+			return;
+		}
+	}
 }
 
 void usb_submit_message(struct message *m)
 {
 	// To be called only after usb_is_ready() returns true
 
-	if (!usb_devh) {
+	if (usb_state != USTATE_WORKING) {
 		msg_send_error_reply(m, MODBUS_ERR_GATEWAY_PATH_UNAVAILABLE);
 		return;
 	}
 
-	// FIXME
+	ASSERT(!tx_in_flight && tx_window > 0);
+	tx_window--;
+
+	usb_gen_id(m);
+
+	struct urs485_message *tm = &tx_message;
+	tm->port = m->port->port_number - 1;
+	tm->frame_size = m->request_size;
+	put_u16_le(&tm->message_id, m->usb_message_id);
+	memcpy(tm->frame, m->request, m->request_size);
+
+	DBG("USB TX: port=%d, frame_size=%d, msg_id=%04x", tm->port, tm->frame_size, m->usb_message_id);
+
+	uint tx_size = offsetof(struct urs485_message, frame) + m->request_size;
+	libusb_fill_bulk_transfer(tx_transfer, usb_devh, 0x01, (unsigned char *) &tx_message, tx_size, tx_callback, NULL, 5000);
+
+	int err;
+	if (err = libusb_submit_transfer(tx_transfer))
+		usb_error("Cannot submit bulk TX transfer: error %d");
+	else
+		tx_in_flight = true;
+}
+
+static void rx_process_msg(struct urs485_message *rm)
+{
+	u16 msg_id = get_u16_le(&rm->message_id);
+	DBG("USB RX: port=%d, frame_size=%d, msg_id=%04x", rm->port, rm->frame_size, msg_id);
+
+	if (rm->port == 0xff) {
+		// It was a window open message
+		return;
+	}
+
+	CLIST_FOR_EACH(struct message *, m, busy_messages_qn) {
+		if (m->usb_message_id == msg_id) {
+			m->reply_size = rm->frame_size;
+			ASSERT(m->reply_size < sizeof(m->reply));
+			memcpy(m->reply, rm->frame, m->reply_size);
+			msg_send_reply(m);
+			return;
+		}
+	}
+
+	msg(L_WARN, "Switch replied to an unknown message #%04x", msg_id);
 }
 
 static void rx_callback(struct libusb_transfer *xfer)
@@ -87,11 +167,9 @@ static void rx_callback(struct libusb_transfer *xfer)
 		return;
 	}
 
-	struct urs485_message *rm = &rx_message;
-	DBG("RX: port=%d, frame_size=%d, msg_id=%04x", rm->port, rm->frame_size, rm->message_id);
+	rx_process_msg(&rx_message);
 
 	tx_window++;
-	DBG("TX: Current window is %d", tx_window);
 	rx_init();
 }
 
@@ -111,6 +189,8 @@ static void rx_init(void)
 static void ctrl_callback(struct libusb_transfer *xfer)
 {
 	DBG("USB: Ctrl done (status=%d, len=%d/%d)", xfer->status, xfer->actual_length, xfer->length);
+	ctrl_in_flight = false;
+
 	if (xfer->status != LIBUSB_TRANSFER_COMPLETED) {
 		usb_error("Control transfer failed with status %d", xfer->status);
 		return;
@@ -155,6 +235,8 @@ static void startup_scheduler(void)
 	int err;
 	if (err = libusb_submit_transfer(ctrl_transfer))
 		usb_error("Cannot submit control transfer: error %d");
+	else
+		ctrl_in_flight = true;
 }
 
 static void usb_connect_handler(struct main_timer *timer)
@@ -187,13 +269,9 @@ static void usb_connect_handler(struct main_timer *timer)
 					goto out;
 				}
 
-				// FIXME: Initialize settings of all ports
-				// FIXME: Reset queues
-
 				timer_del(timer);
 
-				usb_state = USTATE_GET_DEV_CONFIG;
-				startup_scheduler();
+				usb_reset();
 				goto out;
 			}
 		}
@@ -214,7 +292,7 @@ static int broken_handler(struct main_hook *hook UNUSED)
 		return HOOK_IDLE;
 
 	// If there are still in-flight transfers, wait for them to complete
-	if (rx_in_flight || tx_in_flight)
+	if (ctrl_in_flight || rx_in_flight || tx_in_flight)
 		return HOOK_IDLE;
 
 	DBG("USB: Closing broken device");

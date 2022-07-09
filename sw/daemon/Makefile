@@ -3,8 +3,9 @@ UCW_CFLAGS := $(shell $(PC) --cflags libucw)
 UCW_LIBS := $(shell $(PC) --libs libucw)
 USB_CFLAGS := $(shell $(PC) --cflags libusb-1.0)
 USB_LIBS := $(shell $(PC) --libs libusb-1.0)
+STM32LIB=../../../stm32lib
 
-CFLAGS=-O2 -Wall -Wextra -Wno-sign-compare -Wno-parentheses -Wstrict-prototypes -Wmissing-prototypes $(UCW_CFLAGS) $(USB_CFLAGS)
+CFLAGS=-O2 -Wall -Wextra -Wno-sign-compare -Wno-parentheses -Wstrict-prototypes -Wmissing-prototypes $(UCW_CFLAGS) $(USB_CFLAGS) -I$(STM32LIB)/lib
 LDLIBS=$(UCW_LIBS) $(USB_LIBS)
 
 all: urs485-daemon

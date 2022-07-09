@@ -10,6 +10,9 @@
 #include <ucw/mainloop.h>
 #include <ucw/unaligned.h>
 
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -25,8 +28,10 @@
 #include "usb.h"
 #include "../firmware/interface.h"
 
-#define CTRL_PORT 8
-#define NUM_PORTS 9
+#include "modbus-proto.h"		// From stm32lib
+
+#define NUM_PORTS 9			// 0 is the control port, 1-8 data ports
+#define SOCKET_TIMEOUT 5000		// [ms] FIXME: Make configurable
 
 struct message_node {
 	cnode n;
@@ -34,8 +39,10 @@ struct message_node {
 	u16 client_transaction_id;
 	u16 usb_message_id;
 	struct port *port;
-	uint frame_size;
-	byte frame[2 + MODBUS_MAX_DATA_SIZE];	// As in struct urs485_message, without CRC
+	uint request_size;
+	byte request[2 + MODBUS_MAX_DATA_SIZE];	// As in struct urs485_message, without CRC
+	uint reply_size;
+	byte reply[2 + MODBUS_MAX_DATA_SIZE];
 };
 
 struct client {
@@ -46,6 +53,9 @@ struct client {
 	cnode busy_messages;		// Being processed
 	cnode tx_messages;		// Processed, waiting for return to client
 };
+
+#define CLIENT_MSG(client, level, fmt, ...) msg(level, "Client %d: " fmt, client->id, ##__VA_ARGS__)
+#define CLIENT_DBG(client, fmt, ...) DBG("Client %d: " fmt, client->id, ##__VA_ARGS__)
 
 struct port {
 	int port_number;
@@ -60,7 +70,6 @@ struct tcp_modbus_header {
 	u16 transaction_id;
 	u16 protocol_id;		// Always 0
 	u16 length;
-	byte unit_id;			// Destination address
 } __attribute__((packed));
 
 #if 0	// FIXME
@@ -116,7 +125,45 @@ out:
 }
 #endif
 
-struct client *client_new(struct port *port, int id)
+static void msg_done(struct message_node *m)
+{
+	// FIXME: Unlink from lists and deallocate
+}
+
+static void msg_send_reply(struct message_node *m)
+{
+	struct main_rec_io *rio = &m->client->rio;
+	CLIENT_DBG(m->client, "Sending frame #%04x of %u bytes", m->client_transaction_id, m->reply_size);
+
+	struct tcp_modbus_header h;
+	put_u16_be(&h.transaction_id, m->client_transaction_id);
+	h.protocol_id = 0;
+	put_u16_be(&h.length, m->reply_size);
+	rec_io_write(rio, &h, sizeof(h));
+
+	rec_io_write(rio, m->reply, m->reply_size);
+
+	msg_done(m);
+}
+
+static void msg_send_error_reply(struct message_node *m, enum modbus_error err)
+{
+	if (m->request[0] == 0) {
+		// We do not reply to broadcasts
+		CLIENT_DBG(m->client, "Not sending error reply %u to a broadcast", err);
+		msg_done(m);
+		return;
+	}
+
+	CLIENT_DBG(m->client, "Error code %02x", err);
+	m->reply[0] = m->request[0];
+	m->reply[1] = m->request[1] | 0x80;
+	m->reply[2] = err;
+	m->reply_size = 3;
+	msg_send_reply(m);
+}
+
+static struct client *client_new(struct port *port, int id)
 {
 	struct client *c = xmalloc_zero(sizeof(*c));
 	c->id = id;
@@ -130,6 +177,7 @@ struct client *client_new(struct port *port, int id)
 static void client_free(struct client *client)
 {
 	rec_io_del(&client->rio);
+	close(client->rio.file.fd);
 
 	// FIXME: Delete the rest
 
@@ -146,30 +194,38 @@ static uint sk_read_handler(struct main_rec_io *rio)
 	struct tcp_modbus_header *h = (struct tcp_modbus_header *) rio->read_buf;
 	uint protocol_id = get_u16_be(&h->protocol_id);
 	if (protocol_id) {
-		// FIXME: Reject connection
+		CLIENT_MSG(client, L_ERROR_R, "Received invalid protocol ID #%04x", protocol_id);
+		client_free(client);
 		return ~0U;
 	}
 	uint len = get_u16_be(&h->length);
-	if (len > 1 + MODBUS_MAX_DATA_SIZE) {
-		// FIXME: Reject connection
+	if (len < 2) {
+		CLIENT_MSG(client, L_ERROR_R, "Received undersized frame of %u bytes", len);
+		client_free(client);
+		return ~0U;
+	}
+	if (len > 2 + MODBUS_MAX_DATA_SIZE) {
+		CLIENT_MSG(client, L_ERROR_R, "Received oversized frame of %u bytes", len);
+		client_free(client);
 		return ~0U;
 	}
 	if (rio->read_avail < sizeof(struct tcp_modbus_header) + len)
 		return 0;
 
-	DBG("Client %d: Got packet");
-
 	struct message_node *m = xmalloc(sizeof(*m));
 	m->client = client;
-	m->client_transaction_id = get_u16_be(h->transaction_id);
+	m->client_transaction_id = get_u16_be(&h->transaction_id);
 	m->usb_message_id = 0;
 	m->port = client->port;
-	m->frame_size = 1 + len;
-	m->frame[0] = h->unit_id;
-	memcpy(m->frame + 1, rio->read_buf + sizeof(struct tcp_modbus_header), len);
+	m->request_size = 2 + len;
+	memcpy(m->request, rio->read_buf + sizeof(struct tcp_modbus_header), len);
+
+	CLIENT_DBG(client, "Received frame #%04x of %u bytes", m->client_transaction_id, m->request_size);
 
 	// FIXME: Enqueue the message for processing
+	msg_send_error_reply(m, MODBUS_ERR_ILLEGAL_FUNCTION);
 
+	rec_io_set_timeout(rio, SOCKET_TIMEOUT);
 	return sizeof(struct tcp_modbus_header) + len;
 }
 
@@ -180,18 +236,18 @@ static int sk_notify_handler(struct main_rec_io *rio, int status)
 	if (status < 0) {
 		switch (status) {
 			case RIO_ERR_READ:
-				msg(L_ERROR_R, "Client %d: Read error: %m", client->id);
+				CLIENT_MSG(client, L_ERROR_R, "Read error: %m");
 				break;
 			case RIO_ERR_WRITE:
-				msg(L_ERROR_R, "Client %d: Write error: %m", client->id);
+				CLIENT_MSG(client, L_ERROR_R, "Write error: %m");
 				break;
 			default:
-				msg(L_ERROR_R, "Client %d: Unknown error", client->id);
+				CLIENT_MSG(client, L_ERROR_R, "Unknown error");
 		}
 		client_free(client);
 		return HOOK_IDLE;
 	} else if (status == RIO_EVENT_EOF) {
-		msg(L_INFO_R, "Client %d: Closed connection", client->id);
+		CLIENT_MSG(client, L_INFO_R, "Closed connection");
 		client_free(client);
 		return HOOK_IDLE;
 	} else {
@@ -205,28 +261,30 @@ static int listen_handler(struct main_file *fi)
 	struct port *port = fi->data;
 
 	struct sockaddr_in6 peer_addr;
-	socklet_t peer_addr_len = sizeof(peer_addr);
+	socklen_t peer_addr_len = sizeof(peer_addr);
 	int sk = accept(fi->fd, &peer_addr, &peer_addr_len);
 	if (sk < 0) {
+		if (errno == EAGAIN)
+			return HOOK_IDLE;
 		msg(L_ERROR, "Error accepting connection: %m");
 		return HOOK_RETRY;
 	}
 
-	if (fcntl(sk, F_SETFL, O_NONBLOCK) < 0)
-		die("Cannot set socket non-blocking: %m");
+	char name_buf[INET6_ADDRSTRLEN];
+	const char *peer_name = inet_ntop(AF_INET6, &peer_addr.sin6_addr, name_buf, sizeof(name_buf));
+	ASSERT(peer_name);
 
-	struct client *client = conn_new(port, sk);
+	struct client *client = client_new(port, sk);
 	struct main_rec_io *rio = &client->rio;
 	rio->read_handler = sk_read_handler;
 	rio->notify_handler = sk_notify_handler;
 	rio->data = client;
 	rio->write_throttle_read = 16384;
-	// FIXME: Timeouts
 	rec_io_add(rio, sk);
 	rec_io_start_read(rio);
+	rec_io_set_timeout(rio, SOCKET_TIMEOUT);
 
-	// FIXME: Log remote address
-	msg(L_INFO_R, "Client %d: New connection", client->id);
+	CLIENT_MSG(client, L_INFO_R, "New connection from %s", peer_name);
 
 	return HOOK_RETRY;
 }
@@ -238,6 +296,10 @@ static void net_init(void)
 	int sk = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
 	if (sk < 0)
 		die("Cannot create TCPv6 socket: %m");
+
+	int one = 1;
+	if (setsockopt(sk, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) < 0)
+		die("Cannot set SO_REUSEADDR on socket: %m");
 
 	struct sockaddr_in6 sin = {
 		.sin6_family = AF_INET6,
@@ -260,6 +322,7 @@ static void net_init(void)
 int main(void)
 {
 	// FIXME: Options
+	main_init();
 	usb_init();
 	net_init();
 

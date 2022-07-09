@@ -33,11 +33,15 @@
 
 - Configuration
 
+- Default name of configuration file
+
 - Port settings
 
 - Control requests
 
 - Turn off LOCAL_DEBUG
+
+- Limit maximum # of connected clients
 
 - Limit maximum # of queued messages per client
 

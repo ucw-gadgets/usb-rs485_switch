@@ -8,6 +8,35 @@
 
 #include "daemon.h"
 
+#include <ucw/conf.h>
+#include <ucw/opt.h>
+
+// Configuration
+
+uint tcp_port_base;
+uint tcp_timeout;
+
+static struct cf_section tcp_config = {
+	CF_ITEMS {
+		CF_UINT("PortBase", &tcp_port_base),
+		CF_UINT("Timeout", &tcp_timeout),
+		CF_END
+	}
+};
+
+static const struct opt_section options = {
+	OPT_ITEMS {
+		OPT_HELP("A daemon for controlling the USB-RS485 switch."),
+		OPT_HELP("Usage: urs485-daemon [options]"),
+		OPT_HELP(""),
+		OPT_HELP("Options:"),
+		OPT_HELP_OPTION,
+		OPT_CONF_OPTIONS,
+		OPT_END
+	}
+};
+
+// Ports
 static struct port ports[NUM_PORTS];
 
 // Global message queues
@@ -82,8 +111,12 @@ static void ports_init(void)
 		port_init(i);
 }
 
-int main(void)
+int main(int argc UNUSED, char **argv)
 {
+	cf_def_file = "config";
+	cf_declare_section("TCP", &tcp_config, 0);
+	opt_parse(&options, argv+1);
+
 	main_init();
 	usb_init();
 	ports_init();

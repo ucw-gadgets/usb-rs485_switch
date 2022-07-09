@@ -9,12 +9,15 @@
 #include <libopencm3/cm3/nvic.h>
 #include <libopencm3/cm3/systick.h>
 #include <libopencm3/stm32/adc.h>
+#include <libopencm3/stm32/desig.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/spi.h>
 #include <libopencm3/stm32/usart.h>
 
 #include <string.h>
+
+char serial_number[13];
 
 /*** Message queues ***/
 
@@ -296,6 +299,7 @@ int main(void)
 {
 	clock_init();
 	gpio_init();
+	desig_get_unique_id_as_dfu(serial_number);
 	debug_init();
 	params_init();
 	reg_init();
@@ -305,7 +309,7 @@ int main(void)
 	queues_init();
 	bus_init();
 
-	debug_printf("USB-RS485 Switch (version %04x)\n", URS485_USB_VERSION);
+	debug_printf("USB-RS485 Switch (version %04x, serial %s)\n", URS485_USB_VERSION, serial_number);
 
 	u32 last_blink = 0;
 

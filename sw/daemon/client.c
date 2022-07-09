@@ -143,7 +143,7 @@ static uint sk_read_handler(struct main_rec_io *rio)
 
 	CLIENT_DBG(client, "Received frame #%04x of %u bytes for port %d", m->client_transaction_id, m->request_size, m->port->port_number);
 
-	rec_io_set_timeout(rio, SOCKET_TIMEOUT);
+	rec_io_set_timeout(rio, tcp_timeout * 1000);
 	return sizeof(struct tcp_modbus_header) + len;
 }
 
@@ -200,7 +200,7 @@ static int listen_handler(struct main_file *fi)
 	rio->write_throttle_read = 16384;
 	rec_io_add(rio, sk);
 	rec_io_start_read(rio);
-	rec_io_set_timeout(rio, SOCKET_TIMEOUT);
+	rec_io_set_timeout(rio, tcp_timeout * 1000);
 
 	CLIENT_MSG(client, L_INFO_R, "New connection from %s for port %d", peer_name, client->port->port_number);
 
@@ -219,12 +219,11 @@ void net_init_port(struct port *port)
 
 	struct sockaddr_in6 sin = {
 		.sin6_family = AF_INET6,
-		// FIXME: Configuration
-		.sin6_port = htons(4300 + port->port_number),
+		.sin6_port = htons(tcp_port_base + port->port_number),
 		.sin6_addr = IN6ADDR_ANY_INIT,
 	};
 	if (bind(sk, &sin, sizeof(sin)) < 0)
-		die("Cannot bind on port 4300: %m");
+		die("Cannot bind on port %d: %m", tcp_port_base + port->port_number);
 
 	if (listen(sk, 64) < 0)
 		die("Cannost listen in port 4300: %m");

@@ -26,12 +26,10 @@ enum usb_string {
 	STR_SERIAL,
 };
 
-static char usb_serial_number[13];
-
 static const char *usb_strings[] = {
 	"United Computer Wizards",
 	"USB-RS485 Switch",
-	usb_serial_number,
+	serial_number,
 };
 
 static const struct usb_device_descriptor device = {

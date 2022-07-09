@@ -262,6 +262,13 @@ static void usb_connect_handler(struct main_timer *timer)
 					goto out;
 				}
 
+				byte serial[64];
+				if ((err = libusb_get_string_descriptor_ascii(usb_devh, desc.iSerialNumber, serial, sizeof(serial))) < 0) {
+					usb_error("Cannot get serial number: error %d", err);
+					goto out;
+				}
+				msg(L_INFO, "Device serial number: %s", serial);
+
 				libusb_reset_device(usb_devh);
 
 				if (err = libusb_claim_interface(usb_devh, 0)) {

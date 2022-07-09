@@ -14,6 +14,8 @@ extern volatile u32 ms_ticks;
 void delay_ms(uint ms);
 void retry_loop(void);
 
+extern char serial_number[13];
+
 /*** Message queues (main.c) ***/
 
 #define MAX_IN_FLIGHT 2		// FIXME

@@ -12,7 +12,6 @@
 #include "modbus-proto.h"		// From stm32lib
 
 #define NUM_PORTS 9			// 0 is the control port, 1-8 data ports
-#define SOCKET_TIMEOUT 5000		// [ms] FIXME: Make configurable
 
 struct message {
 	cnode queue_node;		// In either port->ready_messages or busy_messages
@@ -46,6 +45,9 @@ struct port {
 };
 
 /* urs485-daemon.c */
+
+extern uint tcp_port_base;
+extern uint tcp_timeout;
 
 extern clist busy_messages_qn;		// Sent over USB, waiting for reply
 extern clist orphaned_messages_cn;	// Used instead of a client's list for orphaned messages

@@ -33,9 +33,10 @@
 #define NUM_PORTS 9			// 0 is the control port, 1-8 data ports
 #define SOCKET_TIMEOUT 5000		// [ms] FIXME: Make configurable
 
-struct message_node {
-	cnode n;
-	struct client *client;
+struct message {
+	cnode queue_node;		// In either port->ready_messages or busy_messages
+	cnode client_node;		// In one of client's lists or orphan_list
+	struct client *client;		// NULL for orphaned messages (client disconnected)
 	u16 client_transaction_id;
 	u16 usb_message_id;
 	struct port *port;
@@ -49,9 +50,8 @@ struct client {
 	int id;				// ID used in messages (we use socket FDs for that)
 	struct main_rec_io rio;		// TCP connection with the client
 	struct port *port;
-	cnode rx_messages;		// Received from the client, waiting for processing
-	cnode busy_messages;		// Being processed
-	cnode tx_messages;		// Processed, waiting for return to client
+	clist rx_messages_cn;		// Received from the client, waiting for processing
+	clist busy_messages_cn;		// Being processed
 };
 
 #define CLIENT_MSG(client, level, fmt, ...) msg(level, "Client %d: " fmt, client->id, ##__VA_ARGS__)
@@ -60,10 +60,15 @@ struct client {
 struct port {
 	int port_number;
 	struct main_file listen_file;
+	clist ready_messages_qn;	// Ready to be sent over USB
 	// FIXME: Port settings
 };
 
-static struct port port[NUM_PORTS];
+static struct port ports[NUM_PORTS];
+
+static clist busy_messages_qn;		// Sent over USB, waiting for reply
+static clist orphaned_messages_cn;	// Used instead of a client's list for orphaned messages
+struct main_hook sched_hook;
 
 struct tcp_modbus_header {
 	// All fields are big-endian
@@ -125,12 +130,14 @@ out:
 }
 #endif
 
-static void msg_done(struct message_node *m)
+static void msg_done(struct message *m)
 {
-	// FIXME: Unlink from lists and deallocate
+	clist_remove(&m->queue_node);
+	clist_remove(&m->client_node);
+	xfree(m);
 }
 
-static void msg_send_reply(struct message_node *m)
+static void msg_send_reply(struct message *m)
 {
 	struct main_rec_io *rio = &m->client->rio;
 	CLIENT_DBG(m->client, "Sending frame #%04x of %u bytes", m->client_transaction_id, m->reply_size);
@@ -146,7 +153,7 @@ static void msg_send_reply(struct message_node *m)
 	msg_done(m);
 }
 
-static void msg_send_error_reply(struct message_node *m, enum modbus_error err)
+static void msg_send_error_reply(struct message *m, enum modbus_error err)
 {
 	if (m->request[0] == 0) {
 		// We do not reply to broadcasts
@@ -163,14 +170,57 @@ static void msg_send_error_reply(struct message_node *m, enum modbus_error err)
 	msg_send_reply(m);
 }
 
+static int sched_handler(struct main_hook *hook UNUSED)
+{
+	struct message *m;
+
+	// Messages on the control port are processed immediately
+	while (m = clist_head(&ports[0].ready_messages_qn)) {
+		// FIXME
+		msg_send_error_reply(m, MODBUS_ERR_ILLEGAL_FUNCTION);
+	}
+
+	// Send messages to USB
+	if (!usb_connected) {
+		// If there is no USB device connected, flush all messages
+		while (m = clist_head(&busy_messages_qn))
+			msg_send_error_reply(m, MODBUS_ERR_GATEWAY_PATH_UNAVAILABLE);
+		for (int i=1; i<NUM_PORTS; i++) {
+			struct port *port = &ports[robin];
+			while (m = clist_head(&port->ready_messages_qn))
+				msg_send_error_reply(m, MODBUS_ERR_GATEWAY_PATH_UNAVAILABLE);
+		}
+	} else if (usb_is_ready()) {
+		// Round-robin on ports. Replace by a better scheduler one day.
+		static int robin = 1;
+		for (int i=0; i<NUM_PORTS-1; i++) {
+			robin = robin + 1;
+			if (robin == NUM_PORTS)
+				robin = 1;
+			struct port *port = &ports[robin];
+			if (m = clist_remove_head(&port->ready_messages_qn)) {
+				clist_add_tail(&busy_messages_qn, &m->queue_node);
+				usb_submit(m);
+			}
+		}
+	}
+
+	return HOOK_IDLE;
+}
+
+static void sched_init(void)
+{
+	sched_hook.handler = sched_handler;
+	hook_add(&sched_hook);
+}
+
 static struct client *client_new(struct port *port, int id)
 {
 	struct client *c = xmalloc_zero(sizeof(*c));
 	c->id = id;
 	c->port = port;
-
-	// FIXME: Initialize the rest
-
+	clist_init(&c->rx_messages_cn);
+	clist_init(&c->busy_messages_cn);
 	return c;
 }
 
@@ -179,8 +229,23 @@ static void client_free(struct client *client)
 	rec_io_del(&client->rio);
 	close(client->rio.file.fd);
 
-	// FIXME: Delete the rest
+	// Received, but unprocessed messages can be removed
+	CLIST_FOR_EACH(cnode *, mn, client->rx_messages_cn) {
+		struct message *m = SKIP_BACK(struct message, client_node, mn);
+		CLIENT_DBG(client, "Dropping message #%04x", m->client_transaction_id);
+		msg_done(m);
+	}
 
+	// Messages which are being processed are turned into orphans
+	cnode *mn;
+	while (mn = clist_head(&client->busy_messages_cn)) {
+		struct message *m = SKIP_BACK(struct message, client_node, mn);
+		CLIENT_DBG(client, "Orphaning message #%04x", m->client_transaction_id);
+		clist_remove(mn);
+		clist_add_tail(&orphaned_messages_cn, mn);
+	}
+
+	CLIENT_DBG(client, "Destroyed");
 	xfree(client);
 }
 
@@ -212,17 +277,20 @@ static uint sk_read_handler(struct main_rec_io *rio)
 	if (rio->read_avail < sizeof(struct tcp_modbus_header) + len)
 		return 0;
 
-	struct message_node *m = xmalloc(sizeof(*m));
+	struct message *m = xmalloc(sizeof(*m));
 	m->client = client;
 	m->client_transaction_id = get_u16_be(&h->transaction_id);
 	m->usb_message_id = 0;
 	m->port = client->port;
 	m->request_size = 2 + len;
 	memcpy(m->request, rio->read_buf + sizeof(struct tcp_modbus_header), len);
+	clist_add_tail(&client->port->ready_messages_qn, &m->queue_node);
+	clist_add_tail(&client->rx_messages_cn, &m->client_node);
 
 	CLIENT_DBG(client, "Received frame #%04x of %u bytes", m->client_transaction_id, m->request_size);
 
 	// FIXME: Enqueue the message for processing
+	// FIXME: Limit maximum number of queued messages by client
 	msg_send_error_reply(m, MODBUS_ERR_ILLEGAL_FUNCTION);
 
 	rec_io_set_timeout(rio, SOCKET_TIMEOUT);
@@ -289,9 +357,8 @@ static int listen_handler(struct main_file *fi)
 	return HOOK_RETRY;
 }
 
-static void net_init(void)
+static void port_init_net(struct port *port)
 {
-	// FIXME: Initialize further ports
 	// FIXME: Configuration
 	int sk = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
 	if (sk < 0)
@@ -303,7 +370,7 @@ static void net_init(void)
 
 	struct sockaddr_in6 sin = {
 		.sin6_family = AF_INET6,
-		.sin6_port = htons(4300),
+		.sin6_port = htons(4300 + port->port_number),
 		.sin6_addr = IN6ADDR_ANY_INIT,
 	};
 	if (bind(sk, &sin, sizeof(sin)) < 0)
@@ -312,11 +379,29 @@ static void net_init(void)
 	if (listen(sk, 64) < 0)
 		die("Cannost listen in port 4300: %m");
 
-	port[0].port_number = 0;
-	port[0].listen_file.fd = sk;
-	port[0].listen_file.read_handler = listen_handler;
-	port[0].listen_file.data = &port[0];
-	file_add(&port[0].listen_file);
+	port->listen_file.fd = sk;
+	port->listen_file.read_handler = listen_handler;
+	port->listen_file.data = &port[0];
+	file_add(&port->listen_file);
+}
+
+static void port_init(int index)
+{
+	struct port *port = &ports[index];
+
+	port->port_number = index;
+	clist_init(&port->ready_messages_qn);
+
+	port_init_net(port);
+}
+
+static void ports_init(void)
+{
+	clist_init(&busy_messages_qn);
+	clist_init(&orphaned_messages_cn);
+
+	for (int i=0; i<NUM_PORTS; i++)
+		port_init(i);
 }
 
 int main(void)
@@ -324,7 +409,8 @@ int main(void)
 	// FIXME: Options
 	main_init();
 	usb_init();
-	net_init();
+	ports_init();
+	sched_init();
 
 	main_loop();
 }

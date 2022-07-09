@@ -5,6 +5,7 @@
  */
 
 #include "firmware.h"
+#include "modbus-proto.h"
 
 #include <libopencm3/cm3/nvic.h>
 #include <libopencm3/stm32/gpio.h>
@@ -64,15 +65,6 @@ enum mb_rx_bad {
 	RX_BAD_OK,
 	RX_BAD_CHAR,			// parity error, serial port overrun etc.
 	RX_BAD_OVERSIZE,
-};
-
-enum mb_error {
-	ERR_ILLEGAL_FUNCTION = 0x01,
-	ERR_ILLEGAL_DATA_ADDRESS = 0x02,
-	ERR_ILLEGAL_DATA_VALUE = 0x03,
-	ERR_SLAVE_DEVICE_FAILURE = 0x04,
-	ERR_GATEWAY_PATH_UNAVAILABLE = 0x0a,
-	ERR_GATEWAY_TARGET_NO_RESPONSE = 0x0b,
 };
 
 bool set_port_params(uint port, struct urs485_port_params *par)
@@ -388,7 +380,7 @@ static bool channel_check_rx(struct channel *c)
 static void channel_rx_frame(struct channel *c)
 {
 	if (!channel_check_rx(c)) {
-		internal_error_reply(c->current, ERR_GATEWAY_TARGET_NO_RESPONSE);
+		internal_error_reply(c->current, MODBUS_ERR_GATEWAY_TARGET_DEVICE_FAILED);
 	} else {
 		struct urs485_message *m = &c->current->msg;
 		m->frame_size = c->rx_size - 2;
@@ -422,7 +414,7 @@ static void channel_check_timeout(struct channel *c)
 		return;
 
 	channel_rx_done(c);
-	internal_error_reply(c->current, ERR_GATEWAY_TARGET_NO_RESPONSE);
+	internal_error_reply(c->current, MODBUS_ERR_GATEWAY_TARGET_DEVICE_FAILED);
 	c->state = STATE_IDLE;
 	c->current = NULL;
 }
@@ -477,7 +469,7 @@ void got_msg_from_usb(struct message_node *n)
 	if (m->port < 8 && m->frame_size >= 2 && m->frame_size <= 2 + MODBUS_MAX_DATA_SIZE)
 		queue_put(&channels[m->port / 4].send_queue, n);
 	else
-		internal_error_reply(n, ERR_GATEWAY_PATH_UNAVAILABLE);
+		internal_error_reply(n, MODBUS_ERR_GATEWAY_PATH_UNAVAILABLE);
 }
 
 static void channel_init(struct channel *c)

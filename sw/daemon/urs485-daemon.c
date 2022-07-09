@@ -8,14 +8,6 @@
 
 #include "daemon.h"
 
-// FIXME: Audit includes
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-
 static struct port ports[NUM_PORTS];
 
 // Global message queues
@@ -92,7 +84,6 @@ static void ports_init(void)
 
 int main(void)
 {
-	// FIXME: Options
 	main_init();
 	usb_init();
 	ports_init();

@@ -143,8 +143,6 @@ static uint sk_read_handler(struct main_rec_io *rio)
 
 	CLIENT_DBG(client, "Received frame #%04x of %u bytes for port %d", m->client_transaction_id, m->request_size, m->port->port_number);
 
-	// FIXME: Limit maximum number of queued messages by client
-
 	rec_io_set_timeout(rio, SOCKET_TIMEOUT);
 	return sizeof(struct tcp_modbus_header) + len;
 }
@@ -211,7 +209,6 @@ static int listen_handler(struct main_file *fi)
 
 void net_init_port(struct port *port)
 {
-	// FIXME: Configuration
 	int sk = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
 	if (sk < 0)
 		die("Cannot create TCPv6 socket: %m");
@@ -222,6 +219,7 @@ void net_init_port(struct port *port)
 
 	struct sockaddr_in6 sin = {
 		.sin6_family = AF_INET6,
+		// FIXME: Configuration
 		.sin6_port = htons(4300 + port->port_number),
 		.sin6_addr = IN6ADDR_ANY_INIT,
 	};

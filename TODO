@@ -28,3 +28,17 @@
 
 - Numbering of ports: internally, we are using 0 (right) to 7 (left).
   Should we use 1 (left) to 8 (right) in user-facing parts?
+
+== Daemon ==
+
+- Configuration
+
+- Port settings
+
+- Control requests
+
+- Turn off LOCAL_DEBUG
+
+- Limit maximum # of queued messages per client
+
+- Bind to specific USB device serial number (so that we can have one daemon per device)

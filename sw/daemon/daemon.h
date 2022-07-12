@@ -16,6 +16,7 @@
 struct message {
 	cnode queue_node;		// In either port->ready_messages or busy_messages
 	cnode client_node;		// In one of client's lists or orphan_list
+	struct box *box;
 	struct client *client;		// NULL for orphaned messages (client disconnected)
 	u16 client_transaction_id;
 	u16 usb_message_id;
@@ -29,6 +30,7 @@ struct message {
 struct client {
 	int id;				// ID used in messages (we use socket FDs for that)
 	struct main_rec_io rio;		// TCP connection with the client
+	struct box *box;
 	struct port *port;
 	clist rx_messages_cn;		// Received from the client, waiting for processing
 	clist busy_messages_cn;		// Being processed
@@ -38,19 +40,27 @@ struct client {
 #define CLIENT_DBG(client, fmt, ...) DBG("Client %d: " fmt, client->id, ##__VA_ARGS__)
 
 struct port {
+	struct box *box;
 	int port_number;
 	struct main_file listen_file;
 	clist ready_messages_qn;	// Ready to be sent over USB
 	// FIXME: Port settings
 };
 
+struct box {				// Switch device
+	struct port ports[NUM_PORTS];
+	clist busy_messages_qn;		// Sent over USB, waiting for reply
+	clist orphaned_messages_cn;	// Used instead of a client's list for orphaned messages
+	struct main_hook sched_hook;
+	u16 usb_id;
+};
+
+extern struct box only_box;		// So far we handle only one box
+
 /* urs485-daemon.c */
 
 extern uint tcp_port_base;
 extern uint tcp_timeout;
-
-extern clist busy_messages_qn;		// Sent over USB, waiting for reply
-extern clist orphaned_messages_cn;	// Used instead of a client's list for orphaned messages
 
 /* client.c */
 
@@ -63,5 +73,5 @@ void msg_send_error_reply(struct message *m, enum modbus_error err);
 /* usb.c */
 
 void usb_init(void);
-bool usb_is_ready(void);
+bool usb_is_ready(struct box *box);
 void usb_submit_message(struct message *m);

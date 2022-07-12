@@ -36,16 +36,9 @@ static const struct opt_section options = {
 	}
 };
 
-// Ports
-static struct port ports[NUM_PORTS];
+struct box only_box;
 
-// Global message queues
-clist busy_messages_qn;
-clist orphaned_messages_cn;
-
-static struct main_hook sched_hook;
-
-static struct message *sched_next_msg(void)
+static struct message *sched_next_msg(struct box *box)
 {
 	// Round-robin on ports. Replace by a better scheduler one day.
 	static int robin = 1;
@@ -54,10 +47,10 @@ static struct message *sched_next_msg(void)
 		robin = robin + 1;
 		if (robin == NUM_PORTS)
 			robin = 1;
-		struct port *port = &ports[robin];
+		struct port *port = &box->ports[robin];
 		struct message *m;
 		if (m = clist_remove_head(&port->ready_messages_qn)) {
-			clist_add_tail(&busy_messages_qn, &m->queue_node);
+			clist_add_tail(&box->busy_messages_qn, &m->queue_node);
 			return m;
 		}
 	}
@@ -65,19 +58,20 @@ static struct message *sched_next_msg(void)
 	return NULL;
 }
 
-static int sched_handler(struct main_hook *hook UNUSED)
+static int sched_handler(struct main_hook *hook)
 {
+	struct box *box = hook->data;
 	struct message *m;
 
 	// Messages on the control port are processed immediately
-	while (m = clist_head(&ports[0].ready_messages_qn)) {
+	while (m = clist_head(&box->ports[0].ready_messages_qn)) {
 		// FIXME
 		msg_send_error_reply(m, MODBUS_ERR_ILLEGAL_FUNCTION);
 	}
 
 	// Send messages to USB
-	while (usb_is_ready()) {
-		struct message *m = sched_next_msg();
+	while (usb_is_ready(box)) {
+		struct message *m = sched_next_msg(box);
 		if (!m)
 			break;
 		usb_submit_message(m);
@@ -86,29 +80,33 @@ static int sched_handler(struct main_hook *hook UNUSED)
 	return HOOK_IDLE;
 }
 
-static void sched_init(void)
+static void sched_init(struct box *box)
 {
-	sched_hook.handler = sched_handler;
-	hook_add(&sched_hook);
+	box->sched_hook.handler = sched_handler;
+	box->sched_hook.data = box;
+	hook_add(&box->sched_hook);
 }
 
-static void port_init(int index)
+static void port_init(struct box *box, int index)
 {
-	struct port *port = &ports[index];
+	struct port *port = &box->ports[index];
 
+	port->box = box;
 	port->port_number = index;
 	clist_init(&port->ready_messages_qn);
 
 	net_init_port(port);
 }
 
-static void ports_init(void)
+static void box_init(struct box *box)
 {
-	clist_init(&busy_messages_qn);
-	clist_init(&orphaned_messages_cn);
+	clist_init(&box->busy_messages_qn);
+	clist_init(&box->orphaned_messages_cn);
 
 	for (int i=0; i<NUM_PORTS; i++)
-		port_init(i);
+		port_init(box, i);
+
+	sched_init(box);
 }
 
 int main(int argc UNUSED, char **argv)
@@ -118,10 +116,8 @@ int main(int argc UNUSED, char **argv)
 	opt_parse(&options, argv+1);
 
 	main_init();
+	box_init(&only_box);
 	usb_init();
-	ports_init();
-	usb_init();
-	sched_init();
 
 	main_loop();
 }

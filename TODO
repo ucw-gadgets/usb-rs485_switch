@@ -45,4 +45,7 @@
 
 - Limit maximum # of queued messages per client
 
-- Bind to specific USB device serial number (so that we can have one daemon per device)
+- Support multiple switches simultaneously:
+	- use USB hot-plug
+	- configuration of multiple boxes
+	- match boxes by USB serial numbers

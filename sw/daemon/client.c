@@ -26,6 +26,7 @@ struct tcp_modbus_header {
 static struct message *msg_new(struct client *client)
 {
 	struct message *m = xmalloc_zero(sizeof(*m));
+	m->box = client->box;
 	m->client = client;
 	m->port = client->port;
 	return m;
@@ -42,6 +43,12 @@ void msg_send_reply(struct message *m)
 {
 	if (m->request[0] == 0) {
 		CLIENT_DBG(m->client, "Not replying to broadcast #%04x", m->client_transaction_id);
+		msg_free(m);
+		return;
+	}
+
+	if (!m->client) {
+		DBG("Dropping reply to an orphaned message #%04x", m->client_transaction_id);
 		msg_free(m);
 		return;
 	}
@@ -74,6 +81,7 @@ static struct client *client_new(struct port *port, int id)
 {
 	struct client *c = xmalloc_zero(sizeof(*c));
 	c->id = id;
+	c->box = port->box;
 	c->port = port;
 	clist_init(&c->rx_messages_cn);
 	clist_init(&c->busy_messages_cn);
@@ -98,7 +106,7 @@ static void client_free(struct client *client)
 		struct message *m = SKIP_BACK(struct message, client_node, mn);
 		CLIENT_DBG(client, "Orphaning message #%04x", m->client_transaction_id);
 		clist_remove(mn);
-		clist_add_tail(&orphaned_messages_cn, mn);
+		clist_add_tail(&client->box->orphaned_messages_cn, mn);
 	}
 
 	CLIENT_DBG(client, "Destroyed");

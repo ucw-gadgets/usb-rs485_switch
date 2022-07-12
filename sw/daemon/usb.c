@@ -59,7 +59,7 @@ static void usb_reset(void)
 	startup_scheduler();
 }
 
-bool usb_is_ready(void)
+bool usb_is_ready(struct box *box UNUSED)
 {	
 	// If the switch is not ready, we generate internal errors for all messages
 	if (usb_state != USTATE_WORKING)
@@ -79,18 +79,18 @@ static void tx_callback(struct libusb_transfer *xfer)
 
 static void usb_gen_id(struct message *m)
 {
-	static u16 usb_id;
+	struct box *box = m->box;
 
 	for (;;) {
-		usb_id++;
+		box->usb_id++;
 		bool used = false;
-		CLIST_FOR_EACH(struct message *, n, busy_messages_qn)
-			if (n != m && n->usb_message_id == usb_id) {
+		CLIST_FOR_EACH(struct message *, n, box->busy_messages_qn)
+			if (n != m && n->usb_message_id == box->usb_id) {
 				used = true;
 				break;
 			}
 		if (!used) {
-			m->usb_message_id = usb_id;
+			m->usb_message_id = box->usb_id;
 			return;
 		}
 	}
@@ -130,6 +130,7 @@ void usb_submit_message(struct message *m)
 
 static void rx_process_msg(struct urs485_message *rm)
 {
+	struct box *box = &only_box;
 	u16 msg_id = get_u16_le(&rm->message_id);
 	DBG("USB RX: port=%d, frame_size=%d, msg_id=%04x", rm->port, rm->frame_size, msg_id);
 
@@ -138,7 +139,7 @@ static void rx_process_msg(struct urs485_message *rm)
 		return;
 	}
 
-	CLIST_FOR_EACH(struct message *, m, busy_messages_qn) {
+	CLIST_FOR_EACH(struct message *, m, box->busy_messages_qn) {
 		if (m->usb_message_id == msg_id) {
 			m->reply_size = rm->frame_size;
 			ASSERT(m->reply_size < sizeof(m->reply));
@@ -312,7 +313,7 @@ static int broken_handler(struct main_hook *hook UNUSED)
 
 	// Flush all in-progress messages
 	struct message *m;
-	while (m = clist_head(&busy_messages_qn))
+	while (m = clist_head(&only_box.busy_messages_qn))
 		msg_send_error_reply(m, MODBUS_ERR_GATEWAY_PATH_UNAVAILABLE);
 
 	timer_add_rel(&usb_connect_timer, 5000);

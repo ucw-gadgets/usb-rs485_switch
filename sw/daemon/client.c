@@ -112,6 +112,7 @@ static void client_free(struct client *client)
 		CLIENT_DBG(client, "Orphaning message #%04x", m->client_transaction_id);
 		clist_remove(mn);
 		clist_add_tail(&client->box->orphaned_messages_cn, mn);
+		m->client = NULL;
 	}
 
 	CLIENT_DBG(client, "Destroyed");

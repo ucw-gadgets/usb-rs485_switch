@@ -355,7 +355,7 @@ static void check_if_broken(struct usb_context *u)
 
 	if (u->bus < 0) {
 		// Device already unplugged
-		USB_DBG(u, "USB: Removing device");
+		USB_DBG(u, "Removing device");
 
 		timer_del(&u->connect_timer);
 

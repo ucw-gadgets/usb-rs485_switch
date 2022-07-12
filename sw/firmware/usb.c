@@ -173,7 +173,7 @@ static enum usbd_request_return_codes control_cb(
 				if (index >= 8)
 					return USBD_REQ_NOTSUPP;
 				reply = (const byte *) &port_status[index];
-				reply_len = sizeof(global_config);
+				reply_len = sizeof(struct urs485_port_status);
 				break;
 			case URS485_CONTROL_GET_POWER_STATUS:
 				reply = (const byte *) &power_status;

@@ -354,8 +354,8 @@ static void check_if_broken(struct usb_context *u)
 		msg_send_error_reply(m, MODBUS_ERR_GATEWAY_PATH_UNAVAILABLE);
 
 	if (u->bus < 0) {
-		// Device already unplugged
-		USB_DBG(u, "Removing device");
+		// Device already unplugged, so dismantle the USB context
+		USB_MSG(u, L_INFO, "Switch disconnected");
 
 		timer_del(&u->connect_timer);
 
@@ -397,7 +397,7 @@ static struct box *find_box(const char *serial)
 
 static void hotplug_connect(struct hotplug_request *hr)
 {
-	HR_MSG(hr, L_INFO, "Connected");
+	HR_DBG(hr, "Connected");
 
 	// We might get duplicate events, so ignore the event if the device is already known
 	CLIST_FOR_EACH(struct box *, b, box_list) {
@@ -435,12 +435,13 @@ static void hotplug_connect(struct hotplug_request *hr)
 		HR_MSG(hr, L_ERROR, "Switch configuration for serial number %s is already in use", serial);
 		goto out;
 	}
-	HR_MSG(hr, L_INFO, "Configured as switch %s (serial number %s)", box->cf->name, serial);
 
 	struct usb_context *u = xmalloc_zero(sizeof(*u));
 	u->box = box;
 	u->switch_name = box->cf->name;
 	box->usb = u;
+
+	USB_MSG(u, L_INFO, "Connected on %s (serial number %s)", hr->name, serial);
 
 	u->state = USTATE_INIT;
 	u->bus = hr->bus;
@@ -463,7 +464,7 @@ out:
 
 static void hotplug_disconnect(struct hotplug_request *hr)
 {
-	HR_MSG(hr, L_INFO, "Device disconnected");
+	HR_DBG(hr, "Disconnected");
 
 	CLIST_FOR_EACH(struct box *, b, box_list) {
 		struct usb_context *u = b->usb;

@@ -10,12 +10,13 @@ LDLIBS=$(UCW_LIBS) $(USB_LIBS)
 
 all: urs485-daemon
 
-urs485-daemon: urs485-daemon.o usb.o mainloop-usb.o client.o
+urs485-daemon: urs485-daemon.o usb.o mainloop-usb.o client.o control.o
 
 urs485-daemon.o: urs485-daemon.c daemon.h ../firmware/interface.h
 usb.o: usb.c daemon.h mainloop-usb.h
 mainloop-usb.o: mainloop-usb.c mainloop-usb.h
 client.o: client.c daemon.h
+control.o: control.c daemon.h
 
 install: urs485-daemon
 	install urs485-daemon /usr/local/sbin/

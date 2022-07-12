@@ -18,13 +18,14 @@ struct message {
 	cnode client_node;		// In one of client's lists or orphan_list
 	struct box *box;
 	struct client *client;		// NULL for orphaned messages (client disconnected)
+	struct port *port;
 	u16 client_transaction_id;
 	u16 usb_message_id;
-	struct port *port;
 	uint request_size;
 	byte request[2 + MODBUS_MAX_DATA_SIZE];	// As in struct urs485_message, without CRC
 	uint reply_size;
 	byte reply[2 + MODBUS_MAX_DATA_SIZE];
+	struct ctrl *ctrl;		// Context of processing a control message
 };
 
 struct client {
@@ -44,15 +45,24 @@ struct port {
 	int port_number;
 	struct main_file listen_file;
 	clist ready_messages_qn;	// Ready to be sent over USB
-	// FIXME: Port settings
+
+	// Port settings (host representation of urs485_port_params)
+	uint baud_rate;
+	uint parity;			// URS485_PARITY_xxx
+	uint powered;			// 0 or 1
+	uint request_timeout;		// in milliseconds
+
+	// Port status (host representation of urs485_port_status)
+	uint current_sense;
 };
 
 struct box {				// Switch device
 	struct port ports[NUM_PORTS];
 	clist busy_messages_qn;		// Sent over USB, waiting for reply
+	clist control_messages_qn;	// Control messages being processed
 	clist orphaned_messages_cn;	// Used instead of a client's list for orphaned messages
 	struct main_hook sched_hook;
-	u16 usb_id;
+	u16 last_usb_id;		// Last ID assigned to a message
 };
 
 extern struct box only_box;		// So far we handle only one box
@@ -75,3 +85,11 @@ void msg_send_error_reply(struct message *m, enum modbus_error err);
 void usb_init(void);
 bool usb_is_ready(struct box *box);
 void usb_submit_message(struct message *m);
+void usb_submit_get_port_status(struct port *port);
+void usb_submit_set_port_params(struct port *port);
+
+/* control.c */
+
+bool control_is_ready(struct box *box);
+void control_submit_message(struct message *m);
+void control_usb_done(struct box *box);

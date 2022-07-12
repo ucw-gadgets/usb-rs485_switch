@@ -36,6 +36,8 @@ void msg_free(struct message *m)
 {
 	clist_remove(&m->queue_node);
 	clist_remove(&m->client_node);
+	if (m->ctrl)
+		xfree(m->ctrl);
 	xfree(m);
 }
 

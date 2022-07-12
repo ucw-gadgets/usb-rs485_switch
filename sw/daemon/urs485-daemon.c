@@ -63,10 +63,11 @@ static int sched_handler(struct main_hook *hook)
 	struct box *box = hook->data;
 	struct message *m;
 
-	// Messages on the control port are processed immediately
-	while (m = clist_head(&box->ports[0].ready_messages_qn)) {
-		// FIXME
-		msg_send_error_reply(m, MODBUS_ERR_ILLEGAL_FUNCTION);
+	// Process control messages
+	while (control_is_ready(box) && (m = clist_head(&box->ports[0].ready_messages_qn))) {
+		clist_remove(&m->queue_node);
+		clist_add_tail(&box->control_messages_qn, &m->queue_node);
+		control_submit_message(m);
 	}
 
 	// Send messages to USB
@@ -95,12 +96,18 @@ static void port_init(struct box *box, int index)
 	port->port_number = index;
 	clist_init(&port->ready_messages_qn);
 
+	port->baud_rate = 19200;
+	port->parity = URS485_PARITY_EVEN;
+	port->powered = 0;
+	port->request_timeout = 5000;
+
 	net_init_port(port);
 }
 
 static void box_init(struct box *box)
 {
 	clist_init(&box->busy_messages_qn);
+	clist_init(&box->control_messages_qn);
 	clist_init(&box->orphaned_messages_cn);
 
 	for (int i=0; i<NUM_PORTS; i++)

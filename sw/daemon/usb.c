@@ -36,6 +36,10 @@ static enum usb_state {
 	USTATE_BROKEN,
 } usb_state;
 
+// Which control message is being processed
+enum urs485_control_request usb_ctrl_current;
+static struct port *usb_ctrl_port;
+
 static void startup_scheduler(void);
 static void rx_init(void);
 
@@ -82,15 +86,15 @@ static void usb_gen_id(struct message *m)
 	struct box *box = m->box;
 
 	for (;;) {
-		box->usb_id++;
+		box->last_usb_id++;
 		bool used = false;
 		CLIST_FOR_EACH(struct message *, n, box->busy_messages_qn)
-			if (n != m && n->usb_message_id == box->usb_id) {
+			if (n != m && n->usb_message_id == box->last_usb_id) {
 				used = true;
 				break;
 			}
 		if (!used) {
-			m->usb_message_id = box->usb_id;
+			m->usb_message_id = box->last_usb_id;
 			return;
 		}
 	}
@@ -197,47 +201,90 @@ static void ctrl_callback(struct libusb_transfer *xfer)
 		return;
 	}
 
-	ASSERT(usb_state != USTATE_IDLE && usb_state < USTATE_WORKING);
-	if (usb_state == USTATE_GET_DEV_CONFIG) {
-		struct urs485_config *cf = (struct urs485_config *)(ctrl_buffer + 8);
-		DBG("USB: max_in_flight=%d", get_u16(&cf->max_in_flight));
+	switch (usb_ctrl_current) {
+		case URS485_CONTROL_GET_CONFIG: {
+			struct urs485_config *cf = (struct urs485_config *)(ctrl_buffer + 8);
+			DBG("USB: max_in_flight=%d", get_u16(&cf->max_in_flight));
+			break;
+		}
+		case URS485_CONTROL_GET_PORT_STATUS: {
+			struct urs485_port_status *ps = (struct urs485_port_status *)(ctrl_buffer + 8);
+			usb_ctrl_port->current_sense = get_u16_le(&ps->current_sense);
+			break;
+		}
+		default: ;
 	}
-	usb_state++;
-	startup_scheduler();
+
+	usb_ctrl_current = 0;
+	usb_ctrl_port = NULL;
+
+	ASSERT(usb_state != USTATE_IDLE);
+	if (usb_state < USTATE_WORKING) {
+		usb_state++;
+		startup_scheduler();
+	} else {
+		control_usb_done(&only_box);
+	}
 }
 
-static void startup_scheduler(void)
+static void usb_submit_ctrl(struct port *port, enum urs485_control_request req, bool direction_out, uint data_size)
 {
-	// State machine for the initialization sequence
-	ASSERT(usb_state != USTATE_IDLE);
+	usb_ctrl_current = req;
+	usb_ctrl_port = port;
 
-	if (usb_state == USTATE_GET_DEV_CONFIG) {
-		DBG("USB init: Get device config");
-		libusb_fill_control_setup(ctrl_buffer, LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR, URS485_CONTROL_GET_CONFIG, 0, 0, sizeof(struct urs485_config));
-	} else if (usb_state < USTATE_WORKING) {
-		// FIXME: Replace by proper port configuration
-		uint port_number = usb_state - USTATE_SET_PORT_CONFIG;
-		DBG("USB init: Setting up port %d", port_number);
-
-		struct urs485_port_params *pp = (struct urs485_port_params *)(ctrl_buffer + 8);
-		put_u32_le(&pp->baud_rate, 19200);
-		pp->parity = URS485_PARITY_EVEN;
-		pp->powered = 0;
-		put_u16_le(&pp->request_timeout, 5000);
-
-		libusb_fill_control_setup(ctrl_buffer, LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR, URS485_CONTROL_SET_PORT_PARAMS, 0, port_number, sizeof(struct urs485_port_params));
-	} else {
-		DBG("USB init: Done");
-		rx_init();
-		return;
-	}
+	libusb_fill_control_setup(ctrl_buffer,
+		(direction_out ? LIBUSB_ENDPOINT_OUT : LIBUSB_ENDPOINT_IN) | LIBUSB_REQUEST_TYPE_VENDOR,
+		req,
+		0,
+		(port ? port->port_number : 0),
+		data_size);
 
 	libusb_fill_control_transfer(ctrl_transfer, usb_devh, ctrl_buffer, ctrl_callback, NULL, 5000);
+
 	int err;
 	if (err = libusb_submit_transfer(ctrl_transfer))
 		usb_error("Cannot submit control transfer: error %d");
 	else
 		ctrl_in_flight = true;
+}
+
+void usb_submit_get_port_status(struct port *port)
+{
+	DBG("USB: GET_PORT_STATUS on port %d", port->port_number);
+	usb_submit_ctrl(port, URS485_CONTROL_GET_PORT_STATUS, false, sizeof(struct urs485_port_status));
+}
+
+void usb_submit_set_port_params(struct port *port)
+{
+	DBG("USB: SET_PORT_PARAMS on port %d", port->port_number);
+
+	struct urs485_port_params *pp = (struct urs485_port_params *)(ctrl_buffer + 8);
+	put_u32_le(&pp->baud_rate, port->baud_rate);
+	pp->parity = port->parity;
+	pp->powered = port->powered;
+	put_u16_le(&pp->request_timeout, port->request_timeout);
+
+	usb_submit_ctrl(port, URS485_CONTROL_SET_PORT_PARAMS, true, sizeof(struct urs485_port_params));
+}
+
+static void startup_scheduler(void)
+{
+	struct box *box = &only_box;
+
+	// State machine for the initialization sequence
+	ASSERT(usb_state != USTATE_IDLE);
+
+	if (usb_state == USTATE_GET_DEV_CONFIG) {
+		DBG("USB init: Get device config");
+		usb_submit_ctrl(NULL, URS485_CONTROL_GET_CONFIG, false, sizeof(struct urs485_config));
+	} else if (usb_state < USTATE_WORKING) {
+		uint port_number = usb_state - USTATE_SET_PORT_CONFIG;
+		DBG("USB init: Setting up port %d", port_number);
+		usb_submit_set_port_params(&box->ports[port_number]);
+	} else {
+		DBG("USB init: Done");
+		rx_init();
+	}
 }
 
 static void usb_connect_handler(struct main_timer *timer)
@@ -314,6 +361,8 @@ static int broken_handler(struct main_hook *hook UNUSED)
 	// Flush all in-progress messages
 	struct message *m;
 	while (m = clist_head(&only_box.busy_messages_qn))
+		msg_send_error_reply(m, MODBUS_ERR_GATEWAY_PATH_UNAVAILABLE);
+	while (m = clist_head(&only_box.control_messages_qn))
 		msg_send_error_reply(m, MODBUS_ERR_GATEWAY_PATH_UNAVAILABLE);
 
 	timer_add_rel(&usb_connect_timer, 5000);

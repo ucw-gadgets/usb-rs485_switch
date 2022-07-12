@@ -39,7 +39,8 @@ struct client {
 
 struct port {
 	struct box *box;
-	int port_number;
+	uint port_number;
+	uint phys_number;
 	struct main_file listen_file;
 	clist ready_messages_qn;	// Ready to be sent over USB
 

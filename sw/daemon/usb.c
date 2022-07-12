@@ -135,7 +135,7 @@ void usb_submit_message(struct message *m)
 	usb_gen_id(m);
 
 	struct urs485_message *tm = &u->tx_message;
-	tm->port = m->port->port_number - 1;
+	tm->port = m->port->phys_number;
 	tm->frame_size = m->request_size;
 	put_u16_le(&tm->message_id, m->usb_message_id);
 	memcpy(tm->frame, m->request, m->request_size);
@@ -260,7 +260,7 @@ static void usb_submit_ctrl(struct usb_context *u, struct port *port, enum urs48
 		(direction_out ? LIBUSB_ENDPOINT_OUT : LIBUSB_ENDPOINT_IN) | LIBUSB_REQUEST_TYPE_VENDOR,
 		req,
 		0,
-		(port ? port->port_number : 0),
+		(port ? port->phys_number : 0),
 		data_size);
 
 	libusb_fill_control_transfer(u->ctrl_transfer, u->devh, u->ctrl_buffer, ctrl_callback, u, 5000);
@@ -302,7 +302,7 @@ static void startup_scheduler(struct usb_context *u)
 		USB_DBG(u, "Init: Get device config");
 		usb_submit_ctrl(u, NULL, URS485_CONTROL_GET_CONFIG, false, sizeof(struct urs485_config));
 	} else if (u->state < USTATE_WORKING) {
-		uint port_number = u->state - USTATE_SET_PORT_CONFIG;
+		uint port_number = u->state - USTATE_SET_PORT_CONFIG + 1;
 		USB_DBG(u, "Init: Setting up port %d", port_number);
 		usb_submit_set_port_params(&u->box->ports[port_number]);
 	} else {

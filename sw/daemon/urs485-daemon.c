@@ -131,6 +131,7 @@ static void port_init(struct box *box, int index)
 
 	port->box = box;
 	port->port_number = index;
+	port->phys_number = index - 1;
 	clist_init(&port->ready_messages_qn);
 
 	port->baud_rate = 19200;

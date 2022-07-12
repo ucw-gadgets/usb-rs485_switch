@@ -84,6 +84,8 @@ static struct message *sched_next_msg(struct box *box)
 		struct message *m;
 		if (m = clist_remove_head(&port->ready_messages_qn)) {
 			clist_add_tail(&box->busy_messages_qn, &m->queue_node);
+			clist_remove(&m->client_node);
+			clist_add_tail(&m->client->busy_messages_cn, &m->client_node);
 			return m;
 		}
 	}

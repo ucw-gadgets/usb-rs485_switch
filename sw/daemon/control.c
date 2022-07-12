@@ -76,9 +76,17 @@ static void report_error(struct ctrl *c, uint code)
 	c->state = CSTATE_DONE;
 }
 
+static uint u32_part(uint addr, u32 val)
+{
+	if (addr & 1)
+		return val >> 16;
+	else
+		return val & 0xffff;
+}
+
 static bool check_input_register_addr(struct ctrl *c, uint addr)
 {
-	if (addr == 1) {
+	if (addr >= 1 && addr <= 17) {
 		c->need_get_port_status = true;
 		return true;
 	}
@@ -92,6 +100,22 @@ static uint get_input_register(struct ctrl *c, uint addr)
 	switch (addr) {
 		case 1:
 			return port->current_sense;
+		case 2 ... 3:
+			return u32_part(addr, port->cnt_broadcasts);
+		case 4 ... 5:
+			return u32_part(addr, port->cnt_unicasts);
+		case 6 ... 7:
+			return u32_part(addr, port->cnt_frame_errors);
+		case 8 ... 9:
+			return u32_part(addr, port->cnt_oversize_errors);
+		case 10 ... 11:
+			return u32_part(addr, port->cnt_undersize_errors);
+		case 12 ... 13:
+			return u32_part(addr, port->cnt_crc_errors);
+		case 14 ... 15:
+			return u32_part(addr, port->cnt_mismatch_errors);
+		case 16 ... 17:
+			return u32_part(addr, port->cnt_timeouts);
 		default:
 			ASSERT(0);
 	}

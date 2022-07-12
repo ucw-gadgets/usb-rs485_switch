@@ -233,7 +233,16 @@ static void ctrl_callback(struct libusb_transfer *xfer)
 		}
 		case URS485_CONTROL_GET_PORT_STATUS: {
 			struct urs485_port_status *ps = (struct urs485_port_status *)(u->ctrl_buffer + 8);
-			u->ctrl_port->current_sense = get_u16_le(&ps->current_sense);
+			struct port *port = u->ctrl_port;
+			port->current_sense = get_u16_le(&ps->current_sense);
+			port->cnt_broadcasts = get_u32_le(&ps->cnt_broadcasts);
+			port->cnt_unicasts = get_u32_le(&ps->cnt_unicasts);
+			port->cnt_frame_errors = get_u32_le(&ps->cnt_frame_errors);
+			port->cnt_oversize_errors = get_u32_le(&ps->cnt_oversize_errors);
+			port->cnt_undersize_errors = get_u32_le(&ps->cnt_undersize_errors);
+			port->cnt_crc_errors = get_u32_le(&ps->cnt_crc_errors);
+			port->cnt_mismatch_errors = get_u32_le(&ps->cnt_mismatch_errors);
+			port->cnt_timeouts = get_u32_le(&ps->cnt_timeouts);
 			break;
 		}
 		default: ;

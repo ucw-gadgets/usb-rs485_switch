@@ -31,12 +31,10 @@
 
 - Default name of configuration file
 
-- Port settings
+- Persistent port settings
 
 - Turn off LOCAL_DEBUG
 
 - Limit maximum # of connected clients
 
 - Limit maximum # of queued messages per client
-
-- Port statistics

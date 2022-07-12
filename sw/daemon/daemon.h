@@ -52,6 +52,14 @@ struct port {
 
 	// Port status (host representation of urs485_port_status)
 	uint current_sense;
+	uint cnt_broadcasts;
+	uint cnt_unicasts;
+	uint cnt_frame_errors;
+	uint cnt_oversize_errors;
+	uint cnt_undersize_errors;
+	uint cnt_crc_errors;
+	uint cnt_mismatch_errors;
+	uint cnt_timeouts;
 };
 
 struct box {				// Switch device

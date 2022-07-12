@@ -47,6 +47,8 @@ struct channel {
 	u16 rx_timeout;			// in ms
 	u32 rx_start_at;		// ms_ticks when RX started
 	byte rx_bad;
+
+	struct urs485_port_status *port_status;		// of active port
 };
 
 static struct channel channels[2];
@@ -151,6 +153,7 @@ static void channel_activate_port(struct channel *c, uint port)
 		c->active_port = port;
 		c->port_stale = false;
 		c->rx_timeout = par->request_timeout;
+		c->port_status = &port_status[port];
 	}
 }
 
@@ -349,28 +352,31 @@ static u16 crc16(byte *buf, u16 len)
 static bool channel_check_rx(struct channel *c)
 {
 	if (c->rx_bad) {
-		// FIXME: Error counters
 		CDEBUG(c, "RX bad %d after %d\n", c->rx_bad, c->rx_size);
+		if (c->rx_bad == RX_BAD_CHAR)
+			c->port_status->cnt_frame_errors++;
+		else
+			c->port_status->cnt_oversize_errors++;
 		return false;
 	}
 	
 	if (c->rx_size < 4) {
-		// FIXME: Error counters
 		CDEBUG(c, "RX undersize %d\n", c->rx_size);
+		c->port_status->cnt_undersize_errors++;
 		return false;
 	}
 
 	u16 crc = crc16(c->rx_buf, c->rx_size - 2);
 	u16 rx_crc = (c->rx_buf[c->rx_size-2] << 8) | c->rx_buf[c->rx_size-1];
 	if (crc != rx_crc) {
-		// FIXME: Error counters?
 		CDEBUG(c, "Bad CRC\n");
+		c->port_status->cnt_crc_errors++;
 		return false;
 	}
 
 	if (c->current->msg.frame[0] != c->rx_buf[0]) {
-		// FIXME: Error counters?
 		CDEBUG(c, "Bad sender\n");
+		c->port_status->cnt_mismatch_errors++;
 		return false;
 	}
 
@@ -386,6 +392,7 @@ static void channel_rx_frame(struct channel *c)
 		m->frame_size = c->rx_size - 2;
 		memcpy(m->frame, c->rx_buf, m->frame_size);
 		CDEBUG(c, "Msg #%04x: Received %d bytes\n", m->message_id, c->rx_size);
+		c->port_status->cnt_unicasts++;
 	}
 
 	queue_put(&done_queue, c->current);
@@ -403,6 +410,7 @@ static void channel_broadcast_done(struct channel *c)
 	queue_put(&done_queue, c->current);
 	c->state = STATE_IDLE;
 	c->current = NULL;
+	c->port_status->cnt_broadcasts++;
 }
 
 static void channel_check_timeout(struct channel *c)
@@ -410,13 +418,18 @@ static void channel_check_timeout(struct channel *c)
 	if (ms_ticks - c->rx_start_at <= c->rx_timeout)
 		return;
 
-	if (c->rx_size && c->rx_bad != RX_BAD_OVERSIZE)
-		return;
+	if (c->rx_size) {
+		// If we are receiving a packet which is unlike line noise, continue
+		if (c->rx_bad != RX_BAD_OVERSIZE)
+			return;
+		c->port_status->cnt_oversize_errors++;
+	}
 
 	channel_rx_done(c);
 	internal_error_reply(c->current, MODBUS_ERR_GATEWAY_TARGET_DEVICE_FAILED);
 	c->state = STATE_IDLE;
 	c->current = NULL;
+	c->port_status->cnt_timeouts++;
 }
 
 static void channel_idle(struct channel *c)
@@ -453,7 +466,6 @@ static void channel_loop(struct channel *c)
 
 	if (c->state == STATE_IDLE)
 		channel_idle(c);
-
 }
 
 void bus_loop(void)

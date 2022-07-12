@@ -77,7 +77,15 @@ enum urs485_parity {
 
 struct urs485_port_status {
 	u16 current_sense;		// FIXME
-	// FIXME: Counters
+	u16 rfu;
+	u32 cnt_broadcasts;		// Broadcast requests sent
+	u32 cnt_unicasts;		// Unicast requests sent and replies received
+	u32 cnt_frame_errors;		// Reply contains framing errors
+	u32 cnt_oversize_errors;	// Reply is oversized
+	u32 cnt_undersize_errors;	// Reply is undersized
+	u32 cnt_crc_errors;		// Reply has incorrect CRC
+	u32 cnt_mismatch_errors;	// Reply does not match request
+	u32 cnt_timeouts;		// Did not receive reply in time
 };
 
 struct urs485_power_status {

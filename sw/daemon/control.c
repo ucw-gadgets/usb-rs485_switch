@@ -27,7 +27,6 @@ struct ctrl {
 	byte *wpos;
 	bool need_get_port_status;
 	bool need_set_port_params;
-	bool slave_error;
 };
 
 static uint read_remains(struct ctrl *c)
@@ -49,7 +48,7 @@ static u16 read_u16(struct ctrl *c)
 
 static void write_byte(struct ctrl *c, uint v)
 {
-	*c->wpos = v;
+	*c->wpos++ = v;
 }
 
 static void write_u16(struct ctrl *c, u16 v)
@@ -67,25 +66,21 @@ static bool body_fits(uint body_len)
 static void report_error(struct ctrl *c, uint code)
 {
 	// Discard the partially constructed body of the reply and rewrite the header
+	DBG("CTRL: Error %u", code);
 	struct message *m = c->msg;
 	m->reply[1] |= 0x80;
 	m->reply[2] = code;
-	c->wpos = m->reply + 2;
+	c->wpos = m->reply + 3;
 	c->state = CSTATE_DONE;
 }
 
-static bool check_input_register(struct ctrl *c, uint addr)
+static bool check_input_register_addr(struct ctrl *c, uint addr)
 {
 	if (addr == 1) {
 		c->need_get_port_status = true;
 		return true;
 	}
 	return false;
-}
-
-static bool check_holding_register(struct ctrl *c UNUSED, uint addr)
-{
-	return (addr >= 1 && addr <= 4);
 }
 
 static uint get_input_register(struct ctrl *c, uint addr)
@@ -98,6 +93,11 @@ static uint get_input_register(struct ctrl *c, uint addr)
 		default:
 			ASSERT(0);
 	}
+}
+
+static bool check_holding_register_addr(struct ctrl *c UNUSED, uint addr)
+{
+	return (addr >= 1 && addr <= 4);
 }
 
 static uint get_holding_register(struct ctrl *c, uint addr)
@@ -118,40 +118,46 @@ static uint get_holding_register(struct ctrl *c, uint addr)
 	}
 }
 
+static bool check_holding_register_write(struct ctrl *c UNUSED, uint addr, uint val)
+{
+	switch (addr) {
+		case 1:
+			return (val >= 12 && val <= 1152);
+		case 2:
+			return (val <= 2);
+		case 3:
+			return (val <= 1);
+		case 4:
+			return (val >= 1 && val <= 65535);
+		default:
+			return false;
+	}
+}
+
 static void set_holding_register(struct ctrl *c, uint addr, uint val)
 {
 	struct port *port = c->for_port;
 
 	switch (addr) {
 		case 1:
-			if (val >= 12 && val <= 1152) {
-				port->baud_rate = val * 100;
-				c->need_set_port_params = true;
-			}
+			port->baud_rate = val * 100;
+			c->need_set_port_params = true;
 			break;
 		case 2:
-			if (val <= 2) {
-				port->parity = val;
-				c->need_set_port_params = true;
-			}
+			port->parity = val;
+			c->need_set_port_params = true;
 			break;
 		case 3:
-			if (val <= 1) {
-				port->powered = val;
-				c->need_set_port_params = true;
-			}
+			port->powered = val;
+			c->need_set_port_params = true;
 			break;
 		case 4:
-			if (val <= 65535) {
-				port->request_timeout = val;
-				c->need_set_port_params = true;
-			}
+			port->request_timeout = val;
+			c->need_set_port_params = true;
 			break;
 		default:
 			ASSERT(0);
 	}
-
-	c->slave_error = true;
 }
 
 static void func_read_registers(struct ctrl *c, bool holding)
@@ -166,21 +172,31 @@ static void func_read_registers(struct ctrl *c, bool holding)
 	if (!body_fits(1 + bytes))
 		return report_error(c, MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
-	if (c->state == CSTATE_INIT) {
-		for (uint i = 0; i < count; i++)
-			if (!(holding ? check_holding_register : check_input_register)(c, start + i))
-				return report_error(c, MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
+	switch (c->state) {
+		case CSTATE_INIT:
+			DBG("CTRL: Read %s registers %u+%u", (holding ? "holding" : "input"), start, count);
 
-		if (c->need_get_port_status) {
-			usb_submit_get_port_status(c->for_port);
-			c->state = CSTATE_USB_READ;
-			return;
-		}
+			for (uint i = 0; i < count; i++)
+				if (!(holding ? check_holding_register_addr : check_input_register_addr)(c, start + i))
+					return report_error(c, MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
+
+			if (c->need_get_port_status) {
+				usb_submit_get_port_status(c->for_port);
+				c->state = CSTATE_USB_READ;
+				return;
+			}
+			break;
+		case CSTATE_USB_READ:
+			break;
+		default:
+			ASSERT(0);
 	}
 
 	write_byte(c, bytes);
 	for (uint i = 0; i < count; i++)
 		write_u16(c, (holding ? get_holding_register : get_input_register)(c, start + i));
+
+	c->state = CSTATE_DONE;
 }
 
 static void func_write_single_register(struct ctrl *c)
@@ -191,21 +207,34 @@ static void func_write_single_register(struct ctrl *c)
 	uint addr = read_u16(c);
 	uint value = read_u16(c);
 
-	if (c->state == CSTATE_INIT) {
-		if (!check_holding_register(c, addr))
-			return report_error(c, MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
+	switch (c->state) {
+		case CSTATE_INIT:
+			DBG("CTRL: Write single register %u=%u", addr, value);
 
-		set_holding_register(c, addr, value);
+			if (!check_holding_register_addr(c, addr))
+				return report_error(c, MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
 
-		if (c->need_set_port_params) {
-			usb_submit_set_port_params(c->for_port);
-			c->state = CSTATE_USB_WRITE;
-			return;
-		}
+			if (!check_holding_register_write(c, addr, value))
+				return report_error(c, MODBUS_ERR_SLAVE_DEVICE_FAILURE);
+
+			set_holding_register(c, addr, value);
+
+			if (c->need_set_port_params) {
+				usb_submit_set_port_params(c->for_port);
+				c->state = CSTATE_USB_WRITE;
+				return;
+			}
+			break;
+		case CSTATE_USB_WRITE:
+			break;
+		default:
+			ASSERT(0);
 	}
 
 	write_u16(c, addr);
 	write_u16(c, value);
+
+	c->state = CSTATE_DONE;
 }
 
 static void func_write_multiple_registers(struct ctrl *c)
@@ -220,23 +249,40 @@ static void func_write_multiple_registers(struct ctrl *c)
 	if (read_remains(c) < bytes || bytes != 2*count)
 		return report_error(c, MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
-	if (c->state == CSTATE_INIT) {
-		for (uint i = 0; i < count; i++)
-			if (!check_holding_register(c, start + i))
-				return report_error(c, MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
+	uint val[count];
 
-		for (uint i = 0; i < count; i++)
-			set_holding_register(c, start + i, read_u16(c));
+	switch (c->state) {
+		case CSTATE_INIT:
+			DBG("CTRL: Write multiple registers %u+%u", start, count);
 
-		if (c->need_set_port_params) {
-			usb_submit_set_port_params(c->for_port);
-			c->state = CSTATE_USB_WRITE;
-			return;
-		}
+			for (uint i = 0; i < count; i++) {
+				if (!check_holding_register_addr(c, start + i))
+					return report_error(c, MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
+				val[i] = read_u16(c);
+			}
+
+			for (uint i = 0; i < count; i++)
+				if (!check_holding_register_write(c, start + i, val[i]))
+					return report_error(c, MODBUS_ERR_SLAVE_DEVICE_FAILURE);
+
+			for (uint i = 0; i < count; i++)
+				set_holding_register(c, start + i, val[i]);
+
+			if (c->need_set_port_params) {
+				usb_submit_set_port_params(c->for_port);
+				c->state = CSTATE_USB_WRITE;
+				return;
+			}
+			break;
+		case CSTATE_USB_WRITE:
+			break;
+		default:
+			ASSERT(0);
 	}
 
 	write_u16(c, start);
 	write_u16(c, count);
+	c->state = CSTATE_DONE;
 }
 
 bool control_is_ready(struct box *box)
@@ -279,8 +325,6 @@ static void control_process_message(struct ctrl *c)
 
 	DBG("CTRL: new_state=%d", c->state);
 	if (c->state == CSTATE_DONE) {
-		if (c->slave_error)
-			report_error(c, MODBUS_ERR_SLAVE_DEVICE_FAILURE);
 		m->reply_size = c->wpos - m->reply;
 		msg_send_reply(m);
 	}

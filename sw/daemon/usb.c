@@ -184,7 +184,7 @@ static void rx_callback(struct libusb_transfer *xfer)
 	u->rx_in_flight = false;
 
 	if (xfer->status == LIBUSB_TRANSFER_TIMED_OUT) {
-		// XXX: Later, we can turn off the RX pipe if there are no packets in flight
+		// Should not happen
 		rx_init(u);
 		return;
 	}
@@ -204,7 +204,7 @@ static void rx_init(struct usb_context *u)
 {
 	ASSERT(!u->rx_in_flight);
 
-	libusb_fill_bulk_transfer(u->rx_transfer, u->devh, 0x82, (unsigned char *) &u->rx_message, sizeof(u->rx_message), rx_callback, u, 5000);
+	libusb_fill_bulk_transfer(u->rx_transfer, u->devh, 0x82, (unsigned char *) &u->rx_message, sizeof(u->rx_message), rx_callback, u, 0);
 
 	int err;
 	if (err = libusb_submit_transfer(u->rx_transfer))

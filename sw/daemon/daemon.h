@@ -37,9 +37,6 @@ struct client {
 	clist busy_messages_cn;		// Being processed
 };
 
-#define CLIENT_MSG(client, level, fmt, ...) msg(level, "Client %d: " fmt, client->id, ##__VA_ARGS__)
-#define CLIENT_DBG(client, fmt, ...) DBG("Client %d: " fmt, client->id, ##__VA_ARGS__)
-
 struct port {
 	struct box *box;
 	int port_number;
@@ -57,20 +54,29 @@ struct port {
 };
 
 struct box {				// Switch device
+	cnode n;
+	struct switch_config *cf;
 	struct port ports[NUM_PORTS];
 	clist busy_messages_qn;		// Sent over USB, waiting for reply
 	clist control_messages_qn;	// Control messages being processed
 	clist orphaned_messages_cn;	// Used instead of a client's list for orphaned messages
 	struct main_hook sched_hook;
-	u16 last_usb_id;		// Last ID assigned to a message
+	struct usb_context *usb;
 };
 
-extern struct box only_box;		// So far we handle only one box
+extern clist box_list;
 
 /* urs485-daemon.c */
 
-extern uint tcp_port_base;
+struct switch_config {
+	cnode n;
+	char *name;
+	char *serial;
+	uint tcp_port_base;
+};
+
 extern uint tcp_timeout;
+extern struct clist box_configs;
 
 /* client.c */
 

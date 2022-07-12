@@ -1,9 +1,18 @@
-TCP {
-	# We listen on a range of TCP ports for MODBUS over TCP connections:
-	#	base = control bus
-	#	base+1 to base+8 = switch ports
-	PortBase 	4300
+Daemon {
+	# One or more definitions of switches
+	Switch {
+		# Name of the switch used in log messages
+		Name		default
+
+		# If multiple switches are defined, they are recognized by serial numbers
+		#Serial		XYZ
+
+		# We listen on a range of TCP ports for MODBUS over TCP connections:
+		#	base = control bus
+		#	base+1 to base+8 = switch ports
+		TCPPortBase 	4300
+	}
 
 	# Idle TCP connections are closed after TCPTimeout seconds
-	Timeout		60
+	TCPTimeout	60
 }

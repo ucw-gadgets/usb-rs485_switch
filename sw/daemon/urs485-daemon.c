@@ -4,22 +4,55 @@
  *	(c) 2022 Martin Mares <mj@ucw.cz>
  */
 
-#define LOCAL_DEBUG
-
 #include "daemon.h"
 
 #include <ucw/conf.h>
 #include <ucw/opt.h>
 
-// Configuration
+/*** Configuration ***/
 
-uint tcp_port_base;
+clist switch_configs;
+
 uint tcp_timeout;
 
-static struct cf_section tcp_config = {
+static char *switch_commit(void *s_)
+{
+	struct switch_config *s = s_;
+	if (!s->name)
+		return "Every switch must have a Name";
+	if (!s->tcp_port_base)
+		return "Every switch must have a TCPPortBase";
+	return NULL;
+}
+
+static struct cf_section switch_config = {
+	CF_TYPE(struct switch_config),
+	CF_COMMIT(switch_commit),
 	CF_ITEMS {
-		CF_UINT("PortBase", &tcp_port_base),
-		CF_UINT("Timeout", &tcp_timeout),
+		CF_STRING("Name", PTR_TO(struct switch_config, name)),
+		CF_STRING("Serial", PTR_TO(struct switch_config, serial)),
+		CF_UINT("TCPPortBase", PTR_TO(struct switch_config, tcp_port_base)),
+		CF_END
+	}
+};
+
+static char *config_commit(void *x UNUSED)
+{
+	if (clist_empty(&switch_configs))
+		return "No switches defined";
+
+	CLIST_FOR_EACH(struct switch_config *, s, switch_configs)
+		if (!s->serial && clist_next(&switch_configs, &s->n))
+			return "Only the last switch can be defined with no serial number";
+
+	return NULL;
+}
+
+static struct cf_section daemon_config = {
+	CF_COMMIT(config_commit),
+	CF_ITEMS {
+		CF_LIST("Switch", &switch_configs, &switch_config),
+		CF_UINT("TCPTimeout", &tcp_timeout),
 		CF_END
 	}
 };
@@ -36,7 +69,7 @@ static const struct opt_section options = {
 	}
 };
 
-struct box only_box;
+/*** Scheduler ***/
 
 static struct message *sched_next_msg(struct box *box)
 {
@@ -88,6 +121,10 @@ static void sched_init(struct box *box)
 	hook_add(&box->sched_hook);
 }
 
+/*** Initialization ***/
+
+clist box_list;
+
 static void port_init(struct box *box, int index)
 {
 	struct port *port = &box->ports[index];
@@ -116,14 +153,25 @@ static void box_init(struct box *box)
 	sched_init(box);
 }
 
+static void boxes_init(void)
+{
+	clist_init(&box_list);
+	CLIST_FOR_EACH(struct switch_config *, c, switch_configs) {
+		struct box *b = xmalloc_zero(sizeof(*b));
+		b->cf = c;
+		clist_add_tail(&box_list, &b->n);
+		box_init(b);
+	}
+}
+
 int main(int argc UNUSED, char **argv)
 {
 	cf_def_file = "config";
-	cf_declare_section("TCP", &tcp_config, 0);
+	cf_declare_section("Daemon", &daemon_config, 0);
 	opt_parse(&options, argv+1);
 
 	main_init();
-	box_init(&only_box);
+	boxes_init();
 	usb_init();
 
 	main_loop();

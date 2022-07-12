@@ -29,6 +29,8 @@ struct ctrl {
 	bool need_set_port_params;
 };
 
+#define CTRL_DBG(ctrl_ctx, fmt, ...) DBG("CTRL(%s): " fmt, ctrl_ctx->for_port->box->cf->name, ##__VA_ARGS__)
+
 static uint read_remains(struct ctrl *c)
 {
 	return c->rend - c->rpos;
@@ -66,7 +68,7 @@ static bool body_fits(uint body_len)
 static void report_error(struct ctrl *c, uint code)
 {
 	// Discard the partially constructed body of the reply and rewrite the header
-	DBG("CTRL: Error %u", code);
+	CTRL_DBG(c, "Error %u", code);
 	struct message *m = c->msg;
 	m->reply[1] |= 0x80;
 	m->reply[2] = code;
@@ -174,7 +176,7 @@ static void func_read_registers(struct ctrl *c, bool holding)
 
 	switch (c->state) {
 		case CSTATE_INIT:
-			DBG("CTRL: Read %s registers %u+%u", (holding ? "holding" : "input"), start, count);
+			CTRL_DBG(c, "Read %s registers %u+%u", (holding ? "holding" : "input"), start, count);
 
 			for (uint i = 0; i < count; i++)
 				if (!(holding ? check_holding_register_addr : check_input_register_addr)(c, start + i))
@@ -209,7 +211,7 @@ static void func_write_single_register(struct ctrl *c)
 
 	switch (c->state) {
 		case CSTATE_INIT:
-			DBG("CTRL: Write single register %u=%u", addr, value);
+			CTRL_DBG(c, "Write single register %u=%u", addr, value);
 
 			if (!check_holding_register_addr(c, addr))
 				return report_error(c, MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
@@ -253,7 +255,7 @@ static void func_write_multiple_registers(struct ctrl *c)
 
 	switch (c->state) {
 		case CSTATE_INIT:
-			DBG("CTRL: Write multiple registers %u+%u", start, count);
+			CTRL_DBG(c, "Write multiple registers %u+%u", start, count);
 
 			for (uint i = 0; i < count; i++) {
 				if (!check_holding_register_addr(c, start + i))
@@ -305,7 +307,7 @@ static void control_process_message(struct ctrl *c)
 	c->wpos = m->reply + 2;
 
 	uint func = read_byte(c);
-	DBG("CTRL: addr=%02x func=%02x state=%d", m->request[0], func, c->state);
+	CTRL_DBG(c, "addr=%02x func=%02x state=%d", m->request[0], func, c->state);
 	switch (func) {
 		case MODBUS_FUNC_READ_HOLDING_REGISTERS:
 			func_read_registers(c, true);
@@ -323,7 +325,7 @@ static void control_process_message(struct ctrl *c)
 			report_error(c, MODBUS_ERR_ILLEGAL_FUNCTION);
 	}
 
-	DBG("CTRL: new_state=%d", c->state);
+	CTRL_DBG(c, "new_state=%d", c->state);
 	if (c->state == CSTATE_DONE) {
 		m->reply_size = c->wpos - m->reply;
 		msg_send_reply(m);

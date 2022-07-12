@@ -22,8 +22,6 @@
 
 == Firmware ==
 
-- Add serial number to USB descriptors not only in DFU mode
-
 - Enforce minimal inter-packet times.
 
 - Numbering of ports: internally, we are using 0 (right) to 7 (left).
@@ -31,13 +29,9 @@
 
 == Daemon ==
 
-- Configuration
-
 - Default name of configuration file
 
 - Port settings
-
-- Control requests
 
 - Turn off LOCAL_DEBUG
 
@@ -45,7 +39,4 @@
 
 - Limit maximum # of queued messages per client
 
-- Support multiple switches simultaneously:
-	- use USB hot-plug
-	- configuration of multiple boxes
-	- match boxes by USB serial numbers
+- Port statistics

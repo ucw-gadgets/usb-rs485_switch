@@ -16,6 +16,9 @@
 #include <ucw/unaligned.h>
 #include <unistd.h>
 
+#define CLIENT_MSG(client, level, fmt, ...) msg(level, "Client %d: " fmt, client->id, ##__VA_ARGS__)
+#define CLIENT_DBG(client, fmt, ...) DBG("Client %d: " fmt, client->id, ##__VA_ARGS__)
+
 struct tcp_modbus_header {
 	// All fields are big-endian
 	u16 transaction_id;
@@ -212,7 +215,7 @@ static int listen_handler(struct main_file *fi)
 	rec_io_start_read(rio);
 	rec_io_set_timeout(rio, tcp_timeout * 1000);
 
-	CLIENT_MSG(client, L_INFO_R, "New connection from %s for port %d", peer_name, client->port->port_number);
+	CLIENT_MSG(client, L_INFO_R, "New connection from %s for port %s/%d", peer_name, port->box->cf->name, port->port_number);
 
 	return HOOK_RETRY;
 }
@@ -227,13 +230,14 @@ void net_init_port(struct port *port)
 	if (setsockopt(sk, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)) < 0)
 		die("Cannot set SO_REUSEADDR on socket: %m");
 
+	uint tcp_port = port->box->cf->tcp_port_base + port->port_number;
 	struct sockaddr_in6 sin = {
 		.sin6_family = AF_INET6,
-		.sin6_port = htons(tcp_port_base + port->port_number),
+		.sin6_port = htons(tcp_port),
 		.sin6_addr = IN6ADDR_ANY_INIT,
 	};
 	if (bind(sk, &sin, sizeof(sin)) < 0)
-		die("Cannot bind on port %d: %m", tcp_port_base + port->port_number);
+		die("Cannot bind on port %d: %m", tcp_port);
 
 	if (listen(sk, 64) < 0)
 		die("Cannost listen in port 4300: %m");

@@ -154,6 +154,9 @@ static void box_init(struct box *box)
 		port_init(box, i);
 
 	sched_init(box);
+
+	msg(L_INFO, "Switch %s listening on TCP ports %d-%d", box->cf->name,
+	    box->cf->tcp_port_base, box->cf->tcp_port_base + NUM_PORTS - 1);
 }
 
 static void boxes_init(void)

@@ -241,7 +241,7 @@ void net_init_port(struct port *port)
 		die("Cannot bind on port %d: %m", tcp_port);
 
 	if (listen(sk, 64) < 0)
-		die("Cannost listen in port 4300: %m");
+		die("Cannot listen in port %d: %m", tcp_port);
 
 	port->listen_file.fd = sk;
 	port->listen_file.read_handler = listen_handler;

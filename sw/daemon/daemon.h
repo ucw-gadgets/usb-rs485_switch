@@ -100,8 +100,8 @@ void msg_send_error_reply(struct message *m, enum modbus_error err);
 void usb_init(void);
 bool usb_is_ready(struct box *box);
 void usb_submit_message(struct message *m);
-void usb_submit_get_port_status(struct port *port);
-void usb_submit_set_port_params(struct port *port);
+bool usb_submit_get_port_status(struct port *port);
+bool usb_submit_set_port_params(struct port *port);
 
 /* control.c */
 

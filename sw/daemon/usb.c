@@ -281,16 +281,22 @@ static void usb_submit_ctrl(struct usb_context *u, struct port *port, enum urs48
 		u->ctrl_in_flight = true;
 }
 
-void usb_submit_get_port_status(struct port *port)
+bool usb_submit_get_port_status(struct port *port)
 {
 	struct usb_context *u = port->box->usb;
+	if (!u)
+		return false;
+
 	USB_DBG(u, "GET_PORT_STATUS on port %d", port->port_number);
 	usb_submit_ctrl(u, port, URS485_CONTROL_GET_PORT_STATUS, false, sizeof(struct urs485_port_status));
+	return true;
 }
 
-void usb_submit_set_port_params(struct port *port)
+bool usb_submit_set_port_params(struct port *port)
 {
 	struct usb_context *u = port->box->usb;
+	if (!u)
+		return false;
 	USB_DBG(u, "SET_PORT_PARAMS on port %d", port->port_number);
 
 	struct urs485_port_params *pp = (struct urs485_port_params *)(u->ctrl_buffer + 8);
@@ -300,6 +306,7 @@ void usb_submit_set_port_params(struct port *port)
 	put_u16_le(&pp->request_timeout, port->request_timeout);
 
 	usb_submit_ctrl(u, port, URS485_CONTROL_SET_PORT_PARAMS, true, sizeof(struct urs485_port_params));
+	return true;
 }
 
 static void startup_scheduler(struct usb_context *u)

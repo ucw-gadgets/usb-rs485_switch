@@ -207,7 +207,8 @@ static void func_read_registers(struct ctrl *c, bool holding)
 					return report_error(c, MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
 
 			if (c->need_get_port_status) {
-				usb_submit_get_port_status(c->for_port);
+				if (!usb_submit_get_port_status(c->for_port))
+					return report_error(c, MODBUS_ERR_SLAVE_DEVICE_FAILURE);
 				c->state = CSTATE_USB_READ;
 				return;
 			}
@@ -246,9 +247,11 @@ static void func_write_single_register(struct ctrl *c)
 			set_holding_register(c, addr, value);
 
 			if (c->need_set_port_params) {
-				usb_submit_set_port_params(c->for_port);
-				c->state = CSTATE_USB_WRITE;
-				return;
+				if (usb_submit_set_port_params(c->for_port)) {
+					c->state = CSTATE_USB_WRITE;
+					return;
+				}
+				// If USB is not connected, parameter changes will apply after reconnect
 			}
 			break;
 		case CSTATE_USB_WRITE:
@@ -295,9 +298,11 @@ static void func_write_multiple_registers(struct ctrl *c)
 				set_holding_register(c, start + i, val[i]);
 
 			if (c->need_set_port_params) {
-				usb_submit_set_port_params(c->for_port);
-				c->state = CSTATE_USB_WRITE;
-				return;
+				if (usb_submit_set_port_params(c->for_port)) {
+					c->state = CSTATE_USB_WRITE;
+					return;
+				}
+				// If USB is not connected, parameter changes will apply after reconnect
 			}
 			break;
 		case CSTATE_USB_WRITE:

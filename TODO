@@ -27,6 +27,8 @@
 - Numbering of ports: internally, we are using 0 (right) to 7 (left).
   Should we use 1 (left) to 8 (right) in user-facing parts?
 
+- Measuring transaction times and switch load.
+
 == Daemon ==
 
 - Default name of configuration file
@@ -42,3 +44,5 @@
 - Counters on TCP MODBUS events?
 
 - Configurable logging of TCP connect/disconnect events
+
+- TCP_NODELAY

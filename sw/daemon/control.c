@@ -387,7 +387,7 @@ static void func_encapsulated_interface_transport(struct ctrl *c)
 
 	write_byte(c, 0x0e);	// Repeat a part of the request
 	write_byte(c, action);
-	write_byte(c, 0x82);	// Conformity level: Regular identification, both stream and individual access supported
+	write_byte(c, 0x83);	// Conformity level: Extended identification, both stream and individual access supported
 
 	byte *more_follows_at = c->wpos;
 	write_byte(c, 0);	// More follows: so far not

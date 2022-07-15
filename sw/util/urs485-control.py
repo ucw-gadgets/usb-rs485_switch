@@ -4,6 +4,7 @@
 import argparse
 from pymodbus.client.sync import ModbusTcpClient
 from pymodbus.exceptions import ConnectionException
+from pymodbus.mei_message import *
 from pymodbus.pdu import ExceptionResponse, ModbusExceptions
 import sys
 
@@ -139,6 +140,24 @@ def cmd_status(args):
         print()
 
 
+def cmd_version(args):
+    fields = [
+        ('Vendor',              0 ),
+        ('Product',             1 ),
+        ('Daemon version',      2 ),
+        ('Switch name',         0x80 ),
+        ('Serial number',       0x81 ),
+        ('Hardware version',    0x82 ),
+    ]
+
+    for label, id in fields:
+        rq = ReadDeviceInformationRequest(4, id, unit=1)
+        rr = modbus.execute(rq)
+        check_modbus_error(rr)
+        val = rr.information.get(id, b'-').decode('utf-8')
+        print(f'{label+":":20} {val}')
+
+
 def parse_port_list(ports, default_all):
     try:
         if ports == "" or ports is None:
@@ -193,6 +212,8 @@ p_config.add_argument('--timeout', type=int, help='reply timeout [ms]')
 p_status = sub.add_parser('status', help='show port status')
 p_status.add_argument('-p', help='on which ports to act (e.g., "3,5-7" or "all")')
 
+p_version = sub.add_parser('version', help='show switch version')
+
 args = parser.parse_args()
 
 try:
@@ -204,6 +225,8 @@ try:
         cmd_config(args)
     elif cmd == 'status':
         cmd_status(args)
+    elif cmd == 'version':
+        cmd_version(args)
 
 except ConnectionException as e:
     die(str(e))

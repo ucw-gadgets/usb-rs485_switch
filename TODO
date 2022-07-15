@@ -29,6 +29,12 @@
 
 - Measuring transaction times and switch load.
 
+- After some testing, increase MAX_IN_FLIGHT in firmware.h.
+
+- Measuring of current (needs HW fixes).
+
+- Proper activity LEDs.
+
 == Daemon ==
 
 - Default name of configuration file

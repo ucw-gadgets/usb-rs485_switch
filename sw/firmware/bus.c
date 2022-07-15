@@ -110,7 +110,6 @@ static void channel_activate_port(struct channel *c, uint port)
 		CDEBUG(c, "Activating port %d\n", port);
 
 		if (c->active_port != 0xff) {
-			// FIXME: Proper activity LEDs
 			reg_clear_flag(c->active_port, SF_LED | SF_TXEN);
 			reg_set_flag(c->active_port, SF_RXEN_N);
 		}

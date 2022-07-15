@@ -99,7 +99,7 @@ int main(void)
 	debug_printf("Chramst!\n");
 
 	modbus_init();
-	cm_enable_interrupts();		// FIXME: Needed?
+	cm_enable_interrupts();
 
 	for (;;) {
 		debug_led_toggle();

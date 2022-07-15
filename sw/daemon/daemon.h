@@ -91,6 +91,7 @@ struct switch_config {
 };
 
 extern uint tcp_timeout;
+extern uint log_connections;
 extern uint max_queued_messages;
 extern char *persistent_dir;
 extern struct clist switch_configs;

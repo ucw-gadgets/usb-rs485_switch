@@ -20,6 +20,7 @@
 clist switch_configs;
 
 uint tcp_timeout = 60;
+uint log_connections;
 uint max_queued_messages;
 char *persistent_dir;
 
@@ -61,6 +62,7 @@ static struct cf_section daemon_config = {
 	CF_ITEMS {
 		CF_LIST("Switch", &switch_configs, &switch_config),
 		CF_UINT("TCPTimeout", &tcp_timeout),
+		CF_UINT("LogConnections", &log_connections),
 		CF_UINT("MaxQueued", &max_queued_messages),
 		CF_STRING("PersistentDir", &persistent_dir),
 		CF_END

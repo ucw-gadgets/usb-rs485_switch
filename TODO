@@ -38,10 +38,6 @@
 
   - Turn off LOCAL_DEBUG (replace by configurable debug messages?)
 
-  - Limit maximum # of connected clients
-
   - Counters on TCP MODBUS events?
-
-  - Configurable logging of TCP connect/disconnect events
 
   - Fix MODBUS ID strings

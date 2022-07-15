@@ -12,12 +12,14 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <stdarg.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <ucw/log.h>
+#include <ucw/stkstring.h>
 #include <ucw/unaligned.h>
 #include <unistd.h>
 
-#define CLIENT_MSG(client, level, fmt, ...) msg(level, "Client %d: " fmt, client->id, ##__VA_ARGS__)
 #define CLIENT_DBG(client, fmt, ...) DBG("Client %d: " fmt, client->id, ##__VA_ARGS__)
 
 struct tcp_modbus_header {
@@ -26,6 +28,25 @@ struct tcp_modbus_header {
 	u16 protocol_id;		// Always 0
 	u16 length;
 } __attribute__((packed));
+
+static void client_msg(struct client *client, uint flags, const char *fmt, ...)
+{
+	if (!log_connections)
+		return;
+
+	if (log_connections == 1) {
+		uint level = LS_GET_LEVEL(flags);
+		if (level != L_WARN_R && level != L_ERROR_R)
+			return;
+	}
+
+	va_list args;
+	va_start(args, fmt);
+	const char *m = stk_vprintf(fmt, args);
+	va_end(args);
+
+	msg(flags, "Client %d: %s", client->id, m);
+}
 
 static struct message *msg_new(struct client *client)
 {
@@ -140,18 +161,18 @@ static uint sk_read_handler(struct main_rec_io *rio)
 	struct tcp_modbus_header *h = (struct tcp_modbus_header *) rio->read_buf;
 	uint protocol_id = get_u16_be(&h->protocol_id);
 	if (protocol_id) {
-		CLIENT_MSG(client, L_ERROR_R, "Received invalid protocol ID #%04x", protocol_id);
+		client_msg(client, L_ERROR_R, "Received invalid protocol ID #%04x", protocol_id);
 		client_free(client);
 		return ~0U;
 	}
 	uint len = get_u16_be(&h->length);
 	if (len < 2) {
-		CLIENT_MSG(client, L_ERROR_R, "Received undersized frame of %u bytes", len);
+		client_msg(client, L_ERROR_R, "Received undersized frame of %u bytes", len);
 		client_free(client);
 		return ~0U;
 	}
 	if (len > 2 + MODBUS_MAX_DATA_SIZE) {
-		CLIENT_MSG(client, L_ERROR_R, "Received oversized frame of %u bytes", len);
+		client_msg(client, L_ERROR_R, "Received oversized frame of %u bytes", len);
 		client_free(client);
 		return ~0U;
 	}
@@ -185,18 +206,18 @@ static int sk_notify_handler(struct main_rec_io *rio, int status)
 	if (status < 0) {
 		switch (status) {
 			case RIO_ERR_READ:
-				CLIENT_MSG(client, L_ERROR_R, "Read error: %m");
+				client_msg(client, L_ERROR_R, "Read error: %m");
 				break;
 			case RIO_ERR_WRITE:
-				CLIENT_MSG(client, L_ERROR_R, "Write error: %m");
+				client_msg(client, L_ERROR_R, "Write error: %m");
 				break;
 			default:
-				CLIENT_MSG(client, L_ERROR_R, "Unknown error");
+				client_msg(client, L_ERROR_R, "Unknown error");
 		}
 		client_free(client);
 		return HOOK_IDLE;
 	} else if (status == RIO_EVENT_EOF) {
-		CLIENT_MSG(client, L_INFO_R, "Closed connection");
+		client_msg(client, L_INFO_R, "Closed connection");
 		client_free(client);
 		return HOOK_IDLE;
 	} else {
@@ -233,7 +254,7 @@ static int listen_handler(struct main_file *fi)
 	rec_io_start_read(rio);
 	rec_io_set_timeout(rio, tcp_timeout * 1000);
 
-	CLIENT_MSG(client, L_INFO_R, "New connection from %s for port %s/%d", peer_name, port->box->cf->name, port->port_number);
+	client_msg(client, L_INFO_R, "New connection from %s for port %s/%d", peer_name, port->box->cf->name, port->port_number);
 
 	int one = 1;
 	if (setsockopt(sk, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) < 0)

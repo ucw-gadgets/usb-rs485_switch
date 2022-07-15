@@ -98,9 +98,9 @@ static void internal_error_reply(struct message_node *n, byte error_code)
 {
 	struct urs485_message *m = &n->msg;
 	DEBUG("Msg #%04x: Internal error %d\n", m->message_id, error_code);
-	m->frame_size = 2;
-	m->frame[0] |= 0x80;
-	m->frame[1] = error_code;
+	m->frame_size = 3;
+	m->frame[1] |= 0x80;
+	m->frame[2] = error_code;
 	queue_put(&done_queue, n);
 }
 

@@ -34,8 +34,6 @@
 
 == Daemon ==
 
-  - Default name of configuration file
-
   - Counters on TCP MODBUS events?
 
-  - Fix MODBUS ID strings
+  - Better MODBUS ID strings

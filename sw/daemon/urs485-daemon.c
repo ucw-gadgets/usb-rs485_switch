@@ -290,7 +290,7 @@ int main(int argc UNUSED, char **argv)
 {
 	logging_setup();
 
-	cf_def_file = "config";
+	cf_def_file = "/etc/urs485/config";
 	cf_declare_section("Daemon", &daemon_config, 0);
 	opt_parse(&options, argv+1);
 

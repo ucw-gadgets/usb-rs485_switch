@@ -28,6 +28,7 @@ Daemon {
 
 	# Directory for storing persistent port state
 	# (comment out to disable persistent storage)
+	# PersistentDir	/etc/urs485/state
 	PersistentDir	state
 }
 

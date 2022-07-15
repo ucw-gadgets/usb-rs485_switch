@@ -11,6 +11,8 @@
 #include "../firmware/interface.h"
 #include "modbus-proto.h"		// From stm32lib
 
+#define DAEMON_VERSION "0.1"
+
 #define NUM_PORTS 9			// 0 is the control port, 1-8 data ports
 
 struct message {
@@ -62,6 +64,8 @@ struct port {
 	uint cnt_timeouts;
 };
 
+#define SERIAL_SIZE 16			// Including traling 0
+
 struct box {				// Switch device
 	cnode n;
 	struct switch_config *cf;
@@ -102,6 +106,8 @@ bool usb_is_ready(struct box *box);
 void usb_submit_message(struct message *m);
 bool usb_submit_get_port_status(struct port *port);
 bool usb_submit_set_port_params(struct port *port);
+char *usb_get_revision(struct box *box);
+char *usb_get_serial_number(struct box *box);
 
 /* control.c */
 

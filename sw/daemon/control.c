@@ -10,6 +10,8 @@
 
 #include "daemon.h"
 
+#include <string.h>
+
 // States of processing a control message
 enum control_state {
 	CSTATE_INIT,
@@ -24,7 +26,7 @@ struct ctrl {
 	struct port *for_port;
 	enum control_state state;
 	byte *rpos, *rend;
-	byte *wpos;
+	byte *wpos, *wend;
 	bool need_get_port_status;
 	bool need_set_port_params;
 };
@@ -59,10 +61,9 @@ static void write_u16(struct ctrl *c, u16 v)
 	write_byte(c, v);
 }
 
-static bool body_fits(uint body_len)
+static uint write_remains(struct ctrl *c)
 {
-	// body_len excludes slave address and function code
-	return body_len <= MODBUS_MAX_DATA_SIZE;
+	return c->wend - c->wpos;
 }
 
 static void report_error(struct ctrl *c, uint code)
@@ -195,7 +196,7 @@ static void func_read_registers(struct ctrl *c, bool holding)
 	uint count = read_u16(c);
 
 	uint bytes = 2*count;
-	if (!body_fits(1 + bytes))
+	if (bytes + 1 > write_remains(c))
 		return report_error(c, MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	switch (c->state) {
@@ -316,6 +317,129 @@ static void func_write_multiple_registers(struct ctrl *c)
 	c->state = CSTATE_DONE;
 }
 
+enum modbus_id_object {
+	MODBUS_ID_VENDOR_NAME,
+	MODBUS_ID_PRODUCT_CODE,
+	MODBUS_ID_MAJOR_MINOR_REVISION,
+	MODBUS_ID_VENDOR_URL,
+	MODBUS_ID_PRODUCT_NAME,
+	MODBUS_ID_USER_APP_NAME,
+	MODBUS_ID_MAX,
+	MODBUS_ID_CUSTOM_SWITCH_NAME = 0x80,
+	MODBUS_ID_CUSTOM_HW_SERIAL_NUMBER,
+	MODBUS_ID_CUSTOM_HW_REVISION,
+	MODBUS_ID_CUSTOM_MAX,
+};
+
+static const char * const modbus_id_strings[MODBUS_ID_MAX] = {
+	[MODBUS_ID_VENDOR_NAME] = "United Computer Wizards",
+	[MODBUS_ID_PRODUCT_CODE] = "URS-485",
+	[MODBUS_ID_MAJOR_MINOR_REVISION] = DAEMON_VERSION,
+	[MODBUS_ID_VENDOR_URL] = "https://www.ucw.cz/",
+	[MODBUS_ID_PRODUCT_NAME] = "USB-to-RS485 Switch",
+	[MODBUS_ID_USER_APP_NAME] = NULL,
+};
+
+static void func_encapsulated_interface_transport(struct ctrl *c)
+{
+	if (read_remains(c) < 3 ||
+	    read_byte(c) != MODBUS_EIT_READ_DEVICE_IDENT)
+		return report_error(c, MODBUS_ERR_ILLEGAL_DATA_VALUE);
+
+	byte action = read_byte(c);
+	byte id = read_byte(c);
+
+	byte range_min, range_max;
+	switch (action) {
+		case 1:
+			// Streaming access to basic identification
+			range_min = MODBUS_ID_VENDOR_NAME;
+			range_max = MODBUS_ID_MAJOR_MINOR_REVISION;
+			break;
+		case 2:
+			// Streaming access to regular identification
+			range_min = MODBUS_ID_VENDOR_URL;
+			range_max = MODBUS_ID_USER_APP_NAME;
+			break;
+		case 3:
+			// Streaming access to extended identification
+			range_min = MODBUS_ID_CUSTOM_SWITCH_NAME;
+			range_max = MODBUS_ID_CUSTOM_MAX - 1;
+			break;
+		case 4:
+			// Individual access
+			if (id < MODBUS_ID_MAX && modbus_id_strings[id] ||
+			    id >= MODBUS_ID_CUSTOM_SWITCH_NAME && id < MODBUS_ID_CUSTOM_MAX)
+				range_min = range_max = id;
+			else
+				return report_error(c, MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
+			break;
+		default:
+			return report_error(c, MODBUS_ERR_ILLEGAL_DATA_VALUE);
+	}
+
+	CTRL_DBG(c, "Identify: action=%d id=%d range=%d-%d", action, id, range_min, range_max);
+
+	if (action != 4) {
+		if (id < range_min || id > range_max)
+			id = range_min;
+	}
+
+	write_byte(c, 0x0e);	// Repeat a part of the request
+	write_byte(c, action);
+	write_byte(c, 0x82);	// Conformity level: Regular identification, both stream and individual access supported
+
+	byte *more_follows_at = c->wpos;
+	write_byte(c, 0);	// More follows: so far not
+	write_byte(c, 0);	// Next object ID: so far none
+	write_byte(c, 0);	// Number of objects
+
+	for (id = range_min; id <= range_max; id++) {
+		const char *str;
+		if (id < MODBUS_ID_MAX) {
+			str = modbus_id_strings[id];
+		} else {
+			// XXX: Nobody can cross the boundary between standard and custom fields in on requests
+			switch (id) {
+				case MODBUS_ID_CUSTOM_SWITCH_NAME:
+					str = c->for_port->box->cf->name;
+					break;
+				case MODBUS_ID_CUSTOM_HW_SERIAL_NUMBER:
+					str = usb_get_serial_number(c->for_port->box);
+					break;
+				case MODBUS_ID_CUSTOM_HW_REVISION:
+					str = usb_get_revision(c->for_port->box);
+					break;
+				default:
+					str = NULL;
+			}
+		}
+		if (!str)
+			continue;
+
+		uint len = strlen(str);
+		uint remains = write_remains(c);
+		if (len + 2 > remains) {
+			// If it is the only object, cut it
+			if (!more_follows_at[2]) {
+				len = remains - 2;
+			} else {
+				// More follows, report the next ID
+				more_follows_at[0] = 0xff;
+				more_follows_at[1] = id;
+				break;
+			}
+		}
+		more_follows_at[2]++;
+		write_byte(c, id);
+		write_byte(c, len);
+		memcpy(c->wpos, str, len);
+		c->wpos += len;
+	}
+
+	c->state = CSTATE_DONE;
+}
+
 bool control_is_ready(struct box *box)
 {
 	// We currently process control messages one at a time
@@ -334,6 +458,7 @@ static void control_process_message(struct ctrl *c)
 	m->reply[0] = m->request[0];
 	m->reply[1] = m->request[1];
 	c->wpos = m->reply + 2;
+	c->wend = c->wpos + MODBUS_MAX_DATA_SIZE;
 
 	uint func = read_byte(c);
 	CTRL_DBG(c, "addr=%02x func=%02x state=%d", m->request[0], func, c->state);
@@ -349,6 +474,9 @@ static void control_process_message(struct ctrl *c)
 			break;
 		case MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS:
 			func_write_multiple_registers(c);
+			break;
+		case MODBUS_FUNC_ENCAPSULATED_INTERFACE_TRANSPORT:
+			func_encapsulated_interface_transport(c);
 			break;
 		default:
 			report_error(c, MODBUS_ERR_ILLEGAL_FUNCTION);

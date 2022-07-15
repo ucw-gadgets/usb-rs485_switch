@@ -27,8 +27,13 @@ enum usb_state {
 struct usb_context {
 	struct box *box;
 	const char *switch_name;		// Used in debug messages
-	enum usb_state state;
+
+	char hw_revision[8];
+	char serial_number[SERIAL_SIZE];
+
 	int bus, dev;				// -1 if device already unplugged
+	enum usb_state state;
+
 	struct main_timer connect_timer;
 	u16 last_id;				// Last ID assigned to a message
 
@@ -430,14 +435,19 @@ static void hotplug_connect(struct hotplug_request *hr)
 		return;
 	}
 
+	if (desc.bcdDevice != 0x0100) {
+		HR_MSG(hr, L_ERROR, "Unsupported hardware revision %04x", desc.bcdDevice);
+		return;
+	}
+
 	libusb_device_handle *devh;
 	if (err = libusb_open(hr->device, &devh)) {
 		HR_MSG(hr, L_ERROR, "Cannot open device: error %d", err);
 		return;
 	}
 
-	byte serial[64];
-	if ((err = libusb_get_string_descriptor_ascii(devh, desc.iSerialNumber, serial, sizeof(serial))) < 0) {
+	byte serial[SERIAL_SIZE];
+	if ((err = libusb_get_string_descriptor_ascii(devh, desc.iSerialNumber, serial, SERIAL_SIZE)) < 0) {
 		HR_MSG(hr, L_ERROR, "Cannot get serial number: error %d", err);
 		goto out;
 	}
@@ -455,6 +465,8 @@ static void hotplug_connect(struct hotplug_request *hr)
 	struct usb_context *u = xmalloc_zero(sizeof(*u));
 	u->box = box;
 	u->switch_name = box->cf->name;
+	snprintf(u->hw_revision, sizeof(u->hw_revision), "%02x.%02x", desc.bcdDevice >> 8, desc.bcdDevice & 0xff);
+	strcpy(u->serial_number, (char *) serial);
 	box->usb = u;
 
 	USB_MSG(u, L_INFO, "Connected on %s (serial number %s)", hr->name, serial);
@@ -522,6 +534,18 @@ static int hotplug_callback(libusb_context *ctx UNUSED, libusb_device *device, l
 
 	HR_DBG(hr, "Scheduled hotplug event");
 	return 0;
+}
+
+char *usb_get_revision(struct box *box)
+{
+	struct usb_context *u = box->usb;
+	return u ? u->hw_revision : NULL;
+}
+
+char *usb_get_serial_number(struct box *box)
+{
+	struct usb_context *u = box->usb;
+	return u ? u->serial_number : NULL;
 }
 
 void usb_init(void)

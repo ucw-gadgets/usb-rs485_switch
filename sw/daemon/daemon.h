@@ -37,6 +37,7 @@ struct client {
 	struct port *port;
 	clist rx_messages_cn;		// Received from the client, waiting for processing
 	clist busy_messages_cn;		// Being processed
+	uint queued_messages;		// Number of messages in either queue
 };
 
 struct port {
@@ -90,6 +91,7 @@ struct switch_config {
 };
 
 extern uint tcp_timeout;
+extern uint max_queued_messages;
 extern char *persistent_dir;
 extern struct clist switch_configs;
 

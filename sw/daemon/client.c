@@ -38,6 +38,16 @@ static struct message *msg_new(struct client *client)
 
 void msg_free(struct message *m)
 {
+	struct client *client = m->client;
+	if (client) {
+		ASSERT(client->queued_messages);
+		if (client->queued_messages == max_queued_messages) {
+			CLIENT_DBG(client, "Uncorking");
+			rec_io_start_read(&client->rio);
+		}
+		client->queued_messages--;
+	}
+
 	clist_remove(&m->queue_node);
 	clist_remove(&m->client_node);
 	if (m->ctrl)
@@ -155,6 +165,12 @@ static uint sk_read_handler(struct main_rec_io *rio)
 
 	clist_add_tail(&client->port->ready_messages_qn, &m->queue_node);
 	clist_add_tail(&client->rx_messages_cn, &m->client_node);
+
+	client->queued_messages++;
+	if (client->queued_messages == max_queued_messages) {
+		CLIENT_DBG(client, "Corking");
+		rec_io_stop_read(rio);
+	}
 
 	CLIENT_DBG(client, "Received frame #%04x of %u bytes for port %d", m->client_transaction_id, m->request_size, m->port->port_number);
 

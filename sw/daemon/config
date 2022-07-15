@@ -13,8 +13,12 @@ Daemon {
 		TCPPortBase 	4300
 	}
 
-	# Idle TCP connections are closed after TCPTimeout seconds
+	# Idle TCP connections are closed after TCPTimeout seconds (default: 60)
 	TCPTimeout	60
+
+	# Maximum number of queued messages per client (default: 0=unlimited)
+	# If it is reached, we do stop reading from the TCP connection.
+	MaxQueued	10
 
 	# Directory for storing persistent port state
 	# (comment out to disable persistent storage)

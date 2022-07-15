@@ -40,8 +40,6 @@
 
   - Limit maximum # of connected clients
 
-  - Limit maximum # of queued messages per client
-
   - Counters on TCP MODBUS events?
 
   - Configurable logging of TCP connect/disconnect events

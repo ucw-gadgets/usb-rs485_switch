@@ -36,9 +36,7 @@
 
   - Default name of configuration file
 
-  - Persistent port settings
-
-  - Turn off LOCAL_DEBUG
+  - Turn off LOCAL_DEBUG (replace by configurable debug messages?)
 
   - Limit maximum # of connected clients
 

@@ -248,6 +248,7 @@ static void func_write_single_register(struct ctrl *c)
 			set_holding_register(c, addr, value);
 
 			if (c->need_set_port_params) {
+				persist_schedule_write(c->for_port->box);
 				if (usb_submit_set_port_params(c->for_port)) {
 					c->state = CSTATE_USB_WRITE;
 					return;
@@ -299,6 +300,7 @@ static void func_write_multiple_registers(struct ctrl *c)
 				set_holding_register(c, start + i, val[i]);
 
 			if (c->need_set_port_params) {
+				persist_schedule_write(c->for_port->box);
 				if (usb_submit_set_port_params(c->for_port)) {
 					c->state = CSTATE_USB_WRITE;
 					return;

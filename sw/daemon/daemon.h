@@ -74,6 +74,7 @@ struct box {				// Switch device
 	clist control_messages_qn;	// Control messages being processed
 	clist orphaned_messages_cn;	// Used instead of a client's list for orphaned messages
 	struct main_hook sched_hook;
+	struct main_timer persist_timer;
 	struct usb_context *usb;
 };
 
@@ -89,7 +90,10 @@ struct switch_config {
 };
 
 extern uint tcp_timeout;
-extern struct clist box_configs;
+extern char *persistent_dir;
+extern struct clist switch_configs;
+
+void persist_schedule_write(struct box *box);
 
 /* client.c */
 

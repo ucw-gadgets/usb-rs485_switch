@@ -4,16 +4,23 @@
  *	(c) 2022 Martin Mares <mj@ucw.cz>
  */
 
+#define LOCAL_DEBUG
+
 #include "daemon.h"
 
+#include <fcntl.h>
 #include <ucw/conf.h>
+#include <ucw/fastbuf.h>
 #include <ucw/opt.h>
+#include <ucw/stkstring.h>
+#include <unistd.h>
 
 /*** Configuration ***/
 
 clist switch_configs;
 
 uint tcp_timeout;
+char *persistent_dir;
 
 static char *switch_commit(void *s_)
 {
@@ -53,6 +60,7 @@ static struct cf_section daemon_config = {
 	CF_ITEMS {
 		CF_LIST("Switch", &switch_configs, &switch_config),
 		CF_UINT("TCPTimeout", &tcp_timeout),
+		CF_STRING("PersistentDir", &persistent_dir),
 		CF_END
 	}
 };
@@ -123,6 +131,90 @@ static void sched_init(struct box *box)
 	hook_add(&box->sched_hook);
 }
 
+/*** Persistent settings ***/
+
+static void persist_handler(struct main_timer *tm)
+{
+	struct box *box = tm->data;
+	timer_del(tm);
+
+	DBG("Switch %s: Saving persistent settings", box->cf->name);
+
+	const char *filename = stk_printf("%s/%s", persistent_dir, box->cf->name);
+	const char *tmpname = stk_printf("%s.new", filename);
+	struct fastbuf *fb = bopen_try(tmpname, O_WRONLY | O_CREAT | O_TRUNC, 4096);
+	bputsn(fb, "# baud parity powered timeout");
+
+	for (int i=1; i<NUM_PORTS; i++) {
+		struct port *port = &box->ports[i];
+		bprintf(fb, "%d %d %d %d\n",
+			port->baud_rate,
+			port->parity,
+			port->powered,
+			port->request_timeout);
+	}
+
+	bclose(fb);
+
+	if (rename(tmpname, filename) < 0)
+		die("Cannot rename %s to %s: %m", tmpname, filename);
+}
+
+static void persist_load(struct box *box)
+{
+	if (!persistent_dir)
+		return;
+
+	box->persist_timer.handler = persist_handler;
+	box->persist_timer.data = box;
+
+	const char *filename = stk_printf("%s/%s", persistent_dir, box->cf->name);
+	struct fastbuf *fb = bopen_try(filename, O_RDONLY, 4096);
+	if (!fb) {
+		msg(L_INFO, "Persistent settings %s not found", filename);
+		return;
+	}
+
+	DBG("Switch %s: Loading persistent settings", box->cf->name);
+
+	char line[256];
+	int i = 1;
+	int lino = 0;
+
+	while (bgets(fb, line, sizeof(line))) {
+		lino++;
+		if (!line[0] || line[0] == '#')
+			continue;
+
+		int baud, parity, powered, timeout;
+		if (sscanf(line, "%d%d%d%d", &baud, &parity, &powered, &timeout) != 4)
+			die("%s:%d: Parse error", filename, lino);
+		if (i >= NUM_PORTS)
+			die("%s:%d: Too many ports", filename, lino);
+
+		struct port *port = &box->ports[i];
+		port->baud_rate = baud;
+		port->parity = parity;
+		port->powered = powered;
+		port->request_timeout = timeout;
+		i++;
+	}
+
+	if (i != NUM_PORTS)
+		die("%s: Too few ports", filename);
+
+	bclose(fb);
+}
+
+void persist_schedule_write(struct box *box)
+{
+	if (!persistent_dir)
+		return;
+
+	if (!timer_is_active(&box->persist_timer))
+		timer_add_rel(&box->persist_timer, 1000);
+}
+
 /*** Initialization ***/
 
 clist box_list;
@@ -152,6 +244,8 @@ static void box_init(struct box *box)
 
 	for (int i=0; i<NUM_PORTS; i++)
 		port_init(box, i);
+
+	persist_load(box);
 
 	sched_init(box);
 

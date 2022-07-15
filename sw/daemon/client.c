@@ -11,6 +11,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <ucw/unaligned.h>
@@ -217,6 +218,10 @@ static int listen_handler(struct main_file *fi)
 	rec_io_set_timeout(rio, tcp_timeout * 1000);
 
 	CLIENT_MSG(client, L_INFO_R, "New connection from %s for port %s/%d", peer_name, port->box->cf->name, port->port_number);
+
+	int one = 1;
+	if (setsockopt(sk, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) < 0)
+		msg(L_WARN, "Cannot set TCP_NODELAY: %m");
 
 	return HOOK_RETRY;
 }

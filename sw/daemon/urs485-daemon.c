@@ -4,13 +4,12 @@
  *	(c) 2022 Martin Mares <mj@ucw.cz>
  */
 
-#define LOCAL_DEBUG
-
 #include "daemon.h"
 
 #include <fcntl.h>
 #include <ucw/conf.h>
 #include <ucw/fastbuf.h>
+#include <ucw/log.h>
 #include <ucw/opt.h>
 #include <ucw/stkstring.h>
 #include <unistd.h>
@@ -19,6 +18,7 @@
 
 clist switch_configs;
 
+char *log_stream;
 uint tcp_timeout = 60;
 uint log_connections;
 uint max_queued_messages;
@@ -61,6 +61,7 @@ static struct cf_section daemon_config = {
 	CF_COMMIT(config_commit),
 	CF_ITEMS {
 		CF_LIST("Switch", &switch_configs, &switch_config),
+		CF_STRING("LogStream", &log_stream),
 		CF_UINT("TCPTimeout", &tcp_timeout),
 		CF_UINT("LogConnections", &log_connections),
 		CF_UINT("MaxQueued", &max_queued_messages),
@@ -142,7 +143,7 @@ static void persist_handler(struct main_timer *tm)
 	struct box *box = tm->data;
 	timer_del(tm);
 
-	DBG("Switch %s: Saving persistent settings", box->cf->name);
+	msg(L_DEBUG, "Switch %s: Saving persistent settings", box->cf->name);
 
 	const char *filename = stk_printf("%s/%s", persistent_dir, box->cf->name);
 	const char *tmpname = stk_printf("%s.new", filename);
@@ -179,7 +180,7 @@ static void persist_load(struct box *box)
 		return;
 	}
 
-	DBG("Switch %s: Loading persistent settings", box->cf->name);
+	msg(L_INFO, "Switch %s: Loading persistent settings", box->cf->name);
 
 	char line[256];
 	int i = 1;
@@ -217,6 +218,23 @@ void persist_schedule_write(struct box *box)
 
 	if (!timer_is_active(&box->persist_timer))
 		timer_add_rel(&box->persist_timer, 1000);
+}
+
+/*** Logging ***/
+
+uint log_type_client;
+uint log_type_usb;
+
+static void logging_setup(void)
+{
+	log_type_client = log_register_type("client");
+	log_type_usb = log_register_type("usb");
+}
+
+static void logging_init(void)
+{
+	if (log_stream)
+		log_configured(log_stream);
 }
 
 /*** Initialization ***/
@@ -270,10 +288,13 @@ static void boxes_init(void)
 
 int main(int argc UNUSED, char **argv)
 {
+	logging_setup();
+
 	cf_def_file = "config";
 	cf_declare_section("Daemon", &daemon_config, 0);
 	opt_parse(&options, argv+1);
 
+	logging_init();
 	main_init();
 	boxes_init();
 	usb_init();

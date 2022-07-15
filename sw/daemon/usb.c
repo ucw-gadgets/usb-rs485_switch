@@ -4,8 +4,6 @@
  *	(c) 2022 Martin Mares <mj@ucw.cz>
  */
 
-#define LOCAL_DEBUG
-
 #include "daemon.h"
 #include "mainloop-usb.h"
 
@@ -62,10 +60,10 @@ struct hotplug_request {
 static clist hotplug_request_list;
 
 #define USB_MSG(usb_ctx, level, fmt, ...) msg(level, "USB(%s): " fmt, usb_ctx->switch_name, ##__VA_ARGS__)
-#define USB_DBG(usb_ctx, fmt, ...) DBG("USB(%s): " fmt, usb_ctx->switch_name, ##__VA_ARGS__)
+#define USB_DBG(usb_ctx, fmt, ...) msg(L_DEBUG | log_type_usb, "USB(%s): " fmt, usb_ctx->switch_name, ##__VA_ARGS__)
 
 #define HR_MSG(hp_req, level, fmt, ...) msg(level, "%s: " fmt, hp_req->name, ##__VA_ARGS__)
-#define HR_DBG(hp_req, fmt, ...) DBG("%s: " fmt, hp_req->name, ##__VA_ARGS__)
+#define HR_DBG(hp_req, fmt, ...) msg(L_DEBUG | log_type_usb, "%s: " fmt, hp_req->name, ##__VA_ARGS__)
 
 static void handle_hotplug(void);
 static void startup_scheduler(struct usb_context *u);

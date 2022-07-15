@@ -4,8 +4,6 @@
  *	(c) 2022 Martin Mares <mj@ucw.cz>
  */
 
-#define LOCAL_DEBUG
-
 #include "daemon.h"
 
 #include <arpa/inet.h>
@@ -20,7 +18,8 @@
 #include <ucw/unaligned.h>
 #include <unistd.h>
 
-#define CLIENT_DBG(client, fmt, ...) DBG("Client %d: " fmt, client->id, ##__VA_ARGS__)
+#define CLIENT_MSG(client, level, fmt, ...) msg(level, "Client %d: " fmt, client->id, ##__VA_ARGS__)
+#define CLIENT_DBG(client, fmt, ...) msg(L_DEBUG | log_type_client, "Client %d: " fmt, client->id, ##__VA_ARGS__)
 
 struct tcp_modbus_header {
 	// All fields are big-endian
@@ -31,15 +30,6 @@ struct tcp_modbus_header {
 
 static void client_msg(struct client *client, uint flags, const char *fmt, ...)
 {
-	if (!log_connections)
-		return;
-
-	if (log_connections == 1) {
-		uint level = LS_GET_LEVEL(flags);
-		if (level != L_WARN_R && level != L_ERROR_R)
-			return;
-	}
-
 	va_list args;
 	va_start(args, fmt);
 	const char *m = stk_vprintf(fmt, args);

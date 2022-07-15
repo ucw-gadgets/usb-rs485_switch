@@ -13,10 +13,13 @@ Daemon {
 		TCPPortBase 	4300
 	}
 
+	# Log to a given stream (configured below)
+	LogStream       stderr
+
 	# Idle TCP connections are closed after TCPTimeout seconds (default: 60)
 	TCPTimeout	60
 
-	# Log TCP connections (0=none, 1=errors only, 2=also connects and disconnects)
+	# Log TCP connections (0=none, 1=errors only, 2=also connects and disconnects, 3=debugging)
 	LogConnections	1
 
 	# Maximum number of queued messages per client (default: 0=unlimited)
@@ -26,4 +29,38 @@ Daemon {
 	# Directory for storing persistent port state
 	# (comment out to disable persistent storage)
 	PersistentDir	state
+}
+
+# Logging rules (see LibUCW documentation for full explanation)
+
+Logging {
+	Stream {
+		Name		stderr
+		FileDesc	2
+		Microseconds	1
+		Levels:reset	info warn error fatal
+
+		# Log warnings and errors related to client connections
+		Levels		warn_r error_r
+
+		# Log client connects and disconnects
+		# Levels	info_r
+
+		# Log debug messages
+		Levels		debug
+
+		# Which message types should be logged:
+		#	default		ordinary messages
+		#	client		details of client connections
+		#	usb		details of USB communication
+		Types:reset	default
+		# ShowTypes	1
+	}
+
+	Stream {
+		Name            syslog
+		SyslogFacility  daemon
+		SyslogPID       0
+		Levels:reset	info warn error fatal
+	}
 }

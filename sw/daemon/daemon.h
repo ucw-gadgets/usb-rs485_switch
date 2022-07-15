@@ -96,6 +96,9 @@ extern uint max_queued_messages;
 extern char *persistent_dir;
 extern struct clist switch_configs;
 
+extern uint log_type_client;
+extern uint log_type_usb;
+
 void persist_schedule_write(struct box *box);
 
 /* client.c */

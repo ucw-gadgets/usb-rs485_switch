@@ -36,8 +36,6 @@
 
   - Default name of configuration file
 
-  - Turn off LOCAL_DEBUG (replace by configurable debug messages?)
-
   - Counters on TCP MODBUS events?
 
   - Fix MODBUS ID strings

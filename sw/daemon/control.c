@@ -6,7 +6,7 @@
  *	Based on parts of the MODBUS module from stm32lib.
  */
 
-#define LOCAL_DEBUG
+#undef LOCAL_DEBUG
 
 #include "daemon.h"
 

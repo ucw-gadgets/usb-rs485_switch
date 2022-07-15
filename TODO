@@ -24,9 +24,6 @@
 
 - Enforce minimal inter-packet times.
 
-- Numbering of ports: internally, we are using 0 (right) to 7 (left).
-  Should we use 1 (left) to 8 (right) in user-facing parts?
-
 - Measuring transaction times and switch load.
 
 - After some testing, increase MAX_IN_FLIGHT in firmware.h.

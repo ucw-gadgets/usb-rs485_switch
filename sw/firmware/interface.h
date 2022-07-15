@@ -22,6 +22,11 @@
  */
 
 /*
+ *	Switch port numbering:
+ *
+ *	Internally, hardware numbers switch ports from 0 (rightmost) to 7 (leftmost).
+ *	In user-facing parts, we are using 1 (leftmost) to 8 (rightmost).
+ *
  *	Flow control:
  *
  *	The device has a limited number of slots for in-flight messages,

@@ -9,7 +9,7 @@ Daemon {
 
 		# We listen on a range of TCP ports for MODBUS over TCP connections:
 		#	base = control bus
-		#	base+1 to base+8 = switch ports
+		#	base+1 to base+8 = switch ports (left to right)
 		TCPPortBase 	4300
 	}
 

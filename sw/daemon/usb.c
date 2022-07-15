@@ -467,7 +467,7 @@ static void hotplug_connect(struct hotplug_request *hr)
 	strcpy(u->serial_number, (char *) serial);
 	box->usb = u;
 
-	USB_MSG(u, L_INFO, "Connected on %s (serial number %s)", hr->name, serial);
+	USB_MSG(u, L_INFO, "Connected on %s (serial number %s, revision %s)", hr->name, serial, u->hw_revision);
 
 	u->state = USTATE_INIT;
 	u->bus = hr->bus;

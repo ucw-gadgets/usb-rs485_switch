@@ -1,53 +1,53 @@
 == Things to be fixed in HW ==
 
-- GND and GND2 must be connected for VBUS power to work.
+  - GND and GND2 must be connected for VBUS power to work.
 
-- The PIN pin of ADuM4160 should be connected to GPIO0, so that
-  USB can be disconnected in firmware. (If software control were not
-  needed, PIN should be connected to VDD2 on the same chip.)
+  - The PIN pin of ADuM4160 should be connected to GPIO0, so that
+    USB can be disconnected in firmware. (If software control were not
+    needed, PIN should be connected to VDD2 on the same chip.)
 
-- D+ at downstream side of the ADuM4160 has to be pulled up to 3V3
-  by a 1k5 resistor.
+  - D+ at downstream side of the ADuM4160 has to be pulled up to 3V3
+    by a 1k5 resistor.
 
-- Green LEDs are too dim – the 2k7 resistor between PWRENn and the
-  LED is too big.
+  - Green LEDs are too dim – the 2k7 resistor between PWRENn and the
+    LED is too big.
 
-- Inputs + and - of the INA180A1 amplifier are swapped.
+  - Inputs + and - of the INA180A1 amplifier are swapped.
 
-- Voltage limit for VIN (printed next to the power connector)
-  should be decreased to 26V because of INA180A1.
+  - Voltage limit for VIN (printed next to the power connector)
+    should be decreased to 26V because of INA180A1.
 
-- Bias resistors are swapped: A should be biased to +, B to -,
-  so that the idle state of the line is H.
+  - Bias resistors are swapped: A should be biased to +, B to -,
+    so that the idle state of the line is H.
 
 == Firmware ==
 
-- Enforce minimal inter-packet times.
+  - Enforce minimal inter-packet times.
 
-- Measuring transaction times and switch load.
+  - Measuring transaction times and switch load.
 
-- After some testing, increase MAX_IN_FLIGHT in firmware.h.
+  - After some testing, increase MAX_IN_FLIGHT in firmware.h.
 
-- Measuring of current (needs HW fixes).
+  - Measuring of current (needs HW fixes).
 
-- Proper activity LEDs.
+  - Proper activity LEDs.
 
 == Daemon ==
 
-- Default name of configuration file
+  - Default name of configuration file
 
-- Persistent port settings
+  - Persistent port settings
 
-- Turn off LOCAL_DEBUG
+  - Turn off LOCAL_DEBUG
 
-- Limit maximum # of connected clients
+  - Limit maximum # of connected clients
 
-- Limit maximum # of queued messages per client
+  - Limit maximum # of queued messages per client
 
-- Counters on TCP MODBUS events?
+  - Counters on TCP MODBUS events?
 
-- Configurable logging of TCP connect/disconnect events
+  - Configurable logging of TCP connect/disconnect events
 
-- TCP_NODELAY
+  - TCP_NODELAY
 
-- Fix MODBUS ID strings
+  - Fix MODBUS ID strings

@@ -22,6 +22,8 @@
 
 == Firmware ==
 
+  - Turn off debug messages.
+
   - Enforce minimal inter-packet times.
 
   - Measuring transaction times and switch load.

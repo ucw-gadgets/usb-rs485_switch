@@ -9,6 +9,8 @@ import sys
 parity_by_name = {'none': 0, 'odd': 1, 'even': 2}
 parity_by_number = {y: x for x, y in parity_by_name.items()}
 
+power_by_number = {0: 'off', 1: 'on'}
+
 
 def cmd_config(args):
     if (args.baud is not None or
@@ -24,13 +26,7 @@ def cmd_config(args):
         rr = modbus.read_holding_registers(1, 4, unit=port)
         check_modbus_error(rr)
         baud, parity, powered, timeout = rr.registers
-
-        if powered > 0:
-            pow = 'on'
-        else:
-            pow = 'off'
-
-        print(f'{port}    {baud*100:6}  {parity_by_number[parity]:4}    {pow:3}   {timeout:5}')
+        print(f'{port}    {baud*100:6}  {parity_by_number[parity]:4}    {power_by_number[powered]:3}   {timeout:5}')
 
 
 def cmd_config_set(args):
@@ -71,8 +67,75 @@ def cmd_config_set(args):
             check_modbus_error(rr)
 
 
+
 def cmd_status(args):
-    ...
+    ports = parse_port_list(args.p, True)
+
+    row_headings = [
+        'Baud rate',
+        'Parity',
+        'Powered',
+        'Timeout [ms]',
+        'Current sense',
+        'Broadcasts OK',
+        'Unicasts OK',
+        'Framing errors',
+        'Oversize',
+        'Undersize',
+        'CRC errors',
+        'Mismatched',
+        'Timeouts',
+    ]
+
+    table = []
+
+    for port in ports:
+        def u16(i):
+            return regs[i-1]
+
+        def u32(i):
+            return (regs[i] << 16) + regs[i-1]
+
+        rr = modbus.read_holding_registers(1, 4, unit=port)
+        check_modbus_error(rr)
+        regs = rr.registers
+
+        out = [
+            u16(1) * 100,
+            parity_by_number[u16(2)],
+            power_by_number[u16(3)],
+            u16(4),
+        ]
+
+        rr = modbus.read_input_registers(1, 17, unit=port)
+        check_modbus_error(rr)
+        regs = rr.registers
+
+        out.extend([
+            u16(1),
+            u32(2),
+            u32(4),
+            u32(6),
+            u32(8),
+            u32(10),
+            u32(12),
+            u32(14),
+            u32(16),
+        ])
+
+        table.append(out)
+
+    print(f'{"":15}', end="")
+    for p in ports:
+        col = f'Port {p}'
+        print(f'{col:>10}', end="")
+    print()
+
+    for r in range(len(row_headings)):
+        print(f'{row_headings[r]:15}', end="")
+        for i in range(len(ports)):
+            print(f'{table[i][r]:>10}', end="")
+        print()
 
 
 def parse_port_list(ports, default_all):
@@ -127,6 +190,7 @@ p_config.add_argument('--power', type=int, help='deliver power to the port (0/1)
 p_config.add_argument('--timeout', type=int, help='reply timeout [ms]')
 
 p_status = sub.add_parser('status', help='show port status')
+p_status.add_argument('-p', help='on which ports to act (e.g., "3,5-7" or "all")')
 
 args = parser.parse_args()
 

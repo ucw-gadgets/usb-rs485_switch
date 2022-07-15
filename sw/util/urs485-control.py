@@ -2,6 +2,7 @@
 # A simple utility for controlling the USB-RS485 Switch
 
 import argparse
+import logging
 from pymodbus.client.sync import ModbusTcpClient
 from pymodbus.exceptions import ConnectionException
 from pymodbus.mei_message import *
@@ -158,6 +159,99 @@ def cmd_version(args):
         print(f'{label+":":20} {val}')
 
 
+def cmd_scan(args):
+    if args.dev is not None:
+        min, max = args.dev, args.dev
+    else:
+        min, max = args.min, args.max
+
+    if not(min in range(1, 248) and max in range(1, 248)):
+        die("Device addresses must lie between 1 and 247")
+    if args.p not in range(0, 9):
+        die("Ports are numbered between 0 and 8")
+
+    # XXX: Timeout must be significantly greater than bus timeout in the switch
+    bus = ModbusTcpClient(args.ip, port=args.port + args.p, timeout=60)
+    bus.connect()
+
+    for addr in range(min, max+1):
+        scan_device(bus, addr)
+
+
+id_field_names = {
+    0: 'Vendor name',
+    1: 'Product code',
+    2: 'Revision',
+    3: 'Vendor URL',
+    4: 'Product name',
+    5: 'Model name',
+    6: 'Application name',
+}
+
+
+def scan_device(bus, addr):
+    print(f"Probing address {addr}: ", end="")
+    sys.stdout.flush()
+
+    rr = bus.read_holding_registers(0, 1, unit=addr)
+    if rr.isError():
+        if rr.exception_code == ModbusExceptions.GatewayNoResponse:
+            print('no response')
+            return
+        if rr.exception_code == ModbusExceptions.GatewayPathUnavailable:
+            print('no path')
+            return
+    print('responding')
+
+    rq = ReadDeviceInformationRequest(4, 0, unit=addr)
+    rr = bus.execute(rq)
+    if rr.isError():
+        print(f'\tIdentification not supported: {ModbusExceptions.decode(rr.exception_code)}')
+        return
+
+    supports_streaming = (rr.conformity & 0x80) != 0
+    level = rr.conformity & 0x7f
+    ranges = [(1, 0, 2)]
+    if level >= 2:
+        ranges.append((2, 3, 6))
+    if level >= 3:
+        ranges.append((3, 0x80, 0xff))
+    if level == 0 or level >= 4:
+        print(f'\tUnsupported identification conformity level {rr.conformity:02x}')
+    else:
+        print(f'\t{"Ident. level":20}{level}, {"streaming" if supports_streaming else "non-streaming"}')
+
+    def show_fields(rr):
+        for id, raw_val in sorted(rr.information.items()):
+            field = id_field_names.get(id, f'Field #{id}')
+            try:
+                val = raw_val.decode('utf-8')
+            except UnicodeDecodeError:
+                val = '<cannot decode>'
+            print(f'\t{field:20}{val}')
+
+    if supports_streaming:
+        for typ, min_id, max_id in ranges:
+            id = min_id
+            while id >= 0:
+                rq = ReadDeviceInformationRequest(typ, id, unit=addr)
+                rr = bus.execute(rq)
+                if rr.isError():
+                    break
+                show_fields(rr)
+                if rr.more_follows == 0xff:
+                    id = rr.next_object_id
+                else:
+                    id = -1
+    else:
+        for typ, min_id, max_id in ranges:
+            for id in range(min_id, max_id + 1):
+                rq = ReadDeviceInformationRequest(4, id, unit=addr)
+                rr = bus.execute(rq)
+                if not rr.isError():
+                    show_fields(rr)
+
+
 def parse_port_list(ports, default_all):
     try:
         if ports == "" or ports is None:
@@ -200,6 +294,7 @@ def die(msg):
 parser = argparse.ArgumentParser(description='Manage the USB-RS485 switch')
 parser.add_argument('-i', '--ip', default='127.0.0.1', help='IP address of the switch (default: 127.0.0.1)')
 parser.add_argument('-p', '--port', type=int, default=4300, help='TCP port of the management bus (default: 4300)')
+parser.add_argument('--debug', default=False, action='store_true', help='show debugging messages of MODBUS library')
 sub = parser.add_subparsers(dest='command', metavar='command', required=True)
 
 p_config = sub.add_parser('config', help='show/set switch configuration')
@@ -214,7 +309,17 @@ p_status.add_argument('-p', help='on which ports to act (e.g., "3,5-7" or "all")
 
 p_version = sub.add_parser('version', help='show switch version')
 
+p_scan = sub.add_parser('scan', help='scan devices on a bus')
+p_scan.add_argument('-p', metavar='PORT', type=int, required=True, help='switch port to scan (0 for control port)')
+p_scan.add_argument('--dev', metavar='ADDR', type=int, help='device address to scan (default: min to max)')
+p_scan.add_argument('--min', metavar='ADDR', type=int, default=1, help='minimum address to scan (default: 1)')
+p_scan.add_argument('--max', metavar='ADDR', type=int, default=247, help='maximum address to scan (default: 247)')
+
 args = parser.parse_args()
+
+if args.debug:
+    logging.basicConfig(level=logging.DEBUG)
+    logging.getLogger('pymodbus').setLevel(level=logging.DEBUG)
 
 try:
     modbus = ModbusTcpClient(args.ip, port=args.port)
@@ -227,6 +332,8 @@ try:
         cmd_status(args)
     elif cmd == 'version':
         cmd_version(args)
+    elif cmd == 'scan':
+        cmd_scan(args)
 
 except ConnectionException as e:
     die(str(e))

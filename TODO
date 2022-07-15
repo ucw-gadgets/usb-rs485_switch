@@ -52,3 +52,5 @@
 - Configurable logging of TCP connect/disconnect events
 
 - TCP_NODELAY
+
+- Fix MODBUS ID strings

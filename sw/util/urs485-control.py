@@ -3,6 +3,7 @@
 
 import argparse
 from pymodbus.client.sync import ModbusTcpClient
+from pymodbus.exceptions import ConnectionException
 from pymodbus.pdu import ExceptionResponse, ModbusExceptions
 import sys
 
@@ -194,11 +195,15 @@ p_status.add_argument('-p', help='on which ports to act (e.g., "3,5-7" or "all")
 
 args = parser.parse_args()
 
-modbus = ModbusTcpClient(args.ip, port=args.port)
-modbus.connect()
+try:
+    modbus = ModbusTcpClient(args.ip, port=args.port)
+    modbus.connect()
 
-cmd = args.command
-if cmd == 'config':
-    cmd_config(args)
-elif cmd == 'status':
-    cmd_status(args)
+    cmd = args.command
+    if cmd == 'config':
+        cmd_config(args)
+    elif cmd == 'status':
+        cmd_status(args)
+
+except ConnectionException as e:
+    die(str(e))

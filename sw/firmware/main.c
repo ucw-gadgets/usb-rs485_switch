@@ -4,8 +4,22 @@
  *	(c) 2022 Martin Mareš <mj@ucw.cz>
  */
 
+/*
+ *	Assignment of peripherals
+ *
+ *	USART1		RS485 channel 0
+ *	USART2		debugging (non-implemented option: 1-wire bus)
+ *	USART3		RS485 channel 1
+ *	TIM2		RS485 channel 0
+ *	TIM3		RS485 channel 1
+ *	TIM4		(non-implemeneted option: 1-wire bus)
+ *	SPI2		shift registers
+ *	ADC1		voltages and currents
+ */
+
 #include "firmware.h"
 
+#include <libopencm3/cm3/cortex.h>
 #include <libopencm3/cm3/nvic.h>
 #include <libopencm3/cm3/systick.h>
 #include <libopencm3/stm32/adc.h>
@@ -86,12 +100,12 @@ static void clock_init(void)
 	rcc_periph_clock_enable(RCC_GPIOA);
 	rcc_periph_clock_enable(RCC_GPIOB);
 	rcc_periph_clock_enable(RCC_GPIOC);
-	rcc_periph_clock_enable(RCC_USART1);	// channel 0
-	rcc_periph_clock_enable(RCC_USART2);	// debugging
-	rcc_periph_clock_enable(RCC_USART3);	// channel 1
+	rcc_periph_clock_enable(RCC_USART1);
+	rcc_periph_clock_enable(RCC_USART2);
+	rcc_periph_clock_enable(RCC_USART3);
 	rcc_periph_clock_enable(RCC_SPI2);
-	rcc_periph_clock_enable(RCC_TIM2);	// channel 0
-	rcc_periph_clock_enable(RCC_TIM3);	// channel 1
+	rcc_periph_clock_enable(RCC_TIM2);
+	rcc_periph_clock_enable(RCC_TIM3);
 	rcc_periph_clock_enable(RCC_ADC1);
 	rcc_periph_clock_enable(RCC_AFIO);
 
@@ -175,18 +189,48 @@ static void debug_init(void)
 
 /*** System ticks ***/
 
+// Number of millisecond ticks since power up (overflows in 49.7 days)
 volatile u32 ms_ticks;
+
+static volatile u32 current_time_base;
+
+#define SYSTICK_PERIOD (1000 * MICROSECOND)
 
 void sys_tick_handler(void)
 {
 	ms_ticks++;
+	current_time_base += SYSTICK_PERIOD;
 }
 
 static void tick_init(void)
 {
-	systick_set_frequency(1000, CPU_CLOCK_MHZ * 1000000);
+	systick_set_clocksource(STK_CSR_CLKSOURCE_AHB_DIV8);
+	systick_set_reload(SYSTICK_PERIOD - 1);
 	systick_counter_enable();
+	nvic_set_priority(NVIC_SYSTICK_IRQ, 0xf0);
 	systick_interrupt_enable();
+}
+
+u32 get_current_time(void)
+{
+	/*
+	 *  Returns time since power up. Increments by MICROSECOND steps per μs.
+	 *
+	 *  With the default 72 MHz clock, we have MICROSECOND == 9, so the
+	 *  32-bit value overflows in 477 seconds (roughly 8 minutes).
+	 *
+	 *  Since the SYSTICK exception is configured with higher priority
+	 *  than all regular interrupts, it is safe to call this functions
+	 *  from interrupt handlers, too.
+	 */
+	u32 t, t0, ctr;
+	t = current_time_base;
+	do {
+		t0 = t;
+		ctr = systick_get_value();
+		t = current_time_base;
+	} while (t != t0);
+	return t + SYSTICK_PERIOD - ctr;
 }
 
 void delay_ms(uint ms)

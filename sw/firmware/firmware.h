@@ -12,6 +12,10 @@
 extern volatile u32 ms_ticks;
 
 void delay_ms(uint ms);
+u32 get_current_time(void);
+
+#define MICROSECOND (CPU_CLOCK_MHZ / 8)
+
 void retry_loop(void);
 
 extern char serial_number[13];

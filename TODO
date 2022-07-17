@@ -37,3 +37,7 @@
   - Counters on TCP MODBUS events?
 
   - Better MODBUS ID strings
+
+== MODBUS library ==
+
+  - Enforce inter-frame gaps.

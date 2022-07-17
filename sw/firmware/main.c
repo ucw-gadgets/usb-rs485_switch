@@ -73,8 +73,8 @@ static void queues_init(void)
 
 /*** Global status ***/
 
-struct urs485_port_params port_params[8];
-struct urs485_port_status port_status[8];
+struct port_state ports[8];
+
 struct urs485_power_status power_status;
 
 const struct urs485_config global_config = {
@@ -84,7 +84,7 @@ const struct urs485_config global_config = {
 static void params_init(void)
 {
 	for (int i=0; i<8; i++) {
-		struct urs485_port_params *pp = &port_params[i];
+		struct urs485_port_params *pp = &ports[i].params;
 		pp->baud_rate = 9600;
 		pp->parity = URS485_PARITY_EVEN;
 		pp->request_timeout = 1000;

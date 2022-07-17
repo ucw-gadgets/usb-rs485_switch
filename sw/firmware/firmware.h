@@ -47,8 +47,13 @@ extern struct message_queue done_queue;		// to pass to the host
 
 /*** Global status (main.c) ***/
 
-extern struct urs485_port_params port_params[8];
-extern struct urs485_port_status port_status[8];
+struct port_state {
+	struct urs485_port_params params;
+	struct urs485_port_status status;
+};
+
+extern struct port_state ports[8];
+
 extern struct urs485_power_status power_status;
 extern const struct urs485_config global_config;
 

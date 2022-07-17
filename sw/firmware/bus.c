@@ -36,6 +36,9 @@ struct channel {
 	byte active_port;		// 0xff if none
 	bool port_stale;		// active port needs reconfiguration
 
+	struct port_state *port_state;	// of active port
+	struct urs485_port_status *port_status;
+
 	u16 rx_char_timeout;
 
 	byte *tx_buf;
@@ -47,8 +50,6 @@ struct channel {
 	u16 rx_timeout;			// in ms
 	u32 rx_start_at;		// ms_ticks when RX started
 	byte rx_bad;
-
-	struct urs485_port_status *port_status;		// of active port
 };
 
 static struct channel channels[2];
@@ -79,7 +80,7 @@ bool set_port_params(uint port, struct urs485_port_params *par)
 
 	DEBUG("Setting up port %u (rate=%u, par=%u, power=%u, timeout=%u)\n",
 		port, (uint) par->baud_rate, par->parity, par->powered, par->request_timeout);
-	port_params[port] = *par;
+	ports[port].params = *par;
 
 	if (par->powered)
 		reg_set_flag(port, SF_PWREN);
@@ -117,7 +118,8 @@ static void channel_activate_port(struct channel *c, uint port)
 		reg_set_flag(port, SF_LED);
 		reg_send();
 
-		struct urs485_port_params *par = &port_params[port];
+		struct port_state *state = &ports[port];
+		struct urs485_port_params *par = &state->params;
 		usart_disable(c->usart);
 		usart_set_baudrate(c->usart, par->baud_rate);
 		switch (par->parity) {
@@ -152,7 +154,8 @@ static void channel_activate_port(struct channel *c, uint port)
 		c->active_port = port;
 		c->port_stale = false;
 		c->rx_timeout = par->request_timeout;
-		c->port_status = &port_status[port];
+		c->port_state = state;
+		c->port_status = &state->status;
 	}
 }
 

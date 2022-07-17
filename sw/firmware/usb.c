@@ -172,7 +172,7 @@ static enum usbd_request_return_codes control_cb(
 			case URS485_CONTROL_GET_PORT_STATUS:
 				if (index >= 8)
 					return USBD_REQ_NOTSUPP;
-				reply = (const byte *) &port_status[index];
+				reply = (const byte *) &ports[index].status;
 				reply_len = sizeof(struct urs485_port_status);
 				break;
 			case URS485_CONTROL_GET_POWER_STATUS:

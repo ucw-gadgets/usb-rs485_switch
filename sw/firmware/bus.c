@@ -40,6 +40,10 @@ struct channel {
 	struct urs485_port_status *port_status;
 
 	u16 rx_char_timeout;
+	u16 inter_frame_gap;
+
+	u32 transaction_start_time;	// time at the start of transaction
+	u32 transaction_end_time;	// ... at the end of transaction
 
 	byte *tx_buf;
 	u16 tx_pos;
@@ -56,6 +60,7 @@ static struct channel channels[2];
 
 enum mb_state {
 	STATE_IDLE,			// iff channel->current == NULL
+	STATE_GAP,			// inter-frame gap
 	STATE_TX,
 	STATE_TX_LAST,
 	STATE_TX_DONE,
@@ -144,11 +149,14 @@ static void channel_activate_port(struct channel *c, uint port)
 
 		if (par->baud_rate <= 19200) {
 			// For low baud rates, the standard specifies timeout of 1.5 character times
-			// (1 character = start bit + 8 data bits + parity bit + stop bit = 11 bits)
+			// (1 character = start bit + 8 data bits + parity bit + stop bit = 11 bits).
+			// Minimum inter-frame delay is 3.5 character times.
 			c->rx_char_timeout = 1000000*11*3/2/par->baud_rate;
+			c->inter_frame_gap = 1000000*11*7/2/par->baud_rate;
 		} else {
-			// For high rates, the timeout is fixed to 750 μs
+			// For high rates, the timeout is fixed to 750 μs and inter-frame delay to 1750 μs.
 			c->rx_char_timeout = 750;
+			c->inter_frame_gap = 1750;
 		}
 
 		c->active_port = port;
@@ -162,6 +170,7 @@ static void channel_activate_port(struct channel *c, uint port)
 static void channel_tx_init(struct channel *c)
 {
 	c->state = STATE_TX;
+	c->transaction_start_time = get_current_time();
 	c->tx_buf = c->current->msg.frame;
 	c->tx_pos = 0;
 	c->tx_size = c->current->msg.frame_size + 2;
@@ -177,6 +186,27 @@ static void channel_tx_done(struct channel *c)
 {
 	c->state = STATE_TX_DONE;
 	// usart_disable_tx_interrupt(c->usart);		// Already done by irq handler
+}
+
+static void channel_tx_gap(struct channel *c)
+{
+	u32 gap = get_current_time() - c->port_state->last_transaction_end_time;
+	u32 minimum_gap = (c->inter_frame_gap - c->rx_char_timeout) * MICROSECOND;
+	if (gap + MICROSECOND >= minimum_gap) {
+		channel_tx_init(c);
+	} else {
+		/*
+		 *  It is possible that if the port was idle for a long time,
+		 *  the current time has overflowed. In that case, we might
+		 *  insert an unnecessary delay. Since the delay is short and
+		 *  the probablity of this happening quite small, we do not care.
+		 */
+		CDEBUG(c, "Inter-frame gap: %u ticks\n", (uint)(minimum_gap - gap));
+		c->state = STATE_GAP;
+		timer_set_period(c->timer, (minimum_gap - gap) / MICROSECOND);	// at least 1
+		timer_generate_event(c->timer, TIM_EGR_UG);
+		timer_enable_counter(c->timer);
+	}
 }
 
 static void channel_rx_init(struct channel *c)
@@ -199,6 +229,7 @@ static void channel_rx_done(struct channel *c)
 	usart_disable_rx_interrupt(c->usart);
 	usart_set_mode(c->usart, 0);
 	timer_disable_counter(c->usart);
+	c->transaction_end_time = get_current_time();
 }
 
 static void channel_timer_isr(struct channel *c)
@@ -207,6 +238,8 @@ static void channel_timer_isr(struct channel *c)
 		TIM_SR(c->timer) &= ~TIM_SR_UIF;
 		if (c->state == STATE_RX)
 			channel_rx_done(c);
+		else if (c->state == STATE_GAP)
+			channel_tx_init(c);
 	}
 }
 
@@ -250,8 +283,10 @@ static void channel_usart_isr(struct channel *c)
 			channel_tx_done(c);
 			if (c->tx_buf[0])
 				channel_rx_init(c);
-			else
+			else {
 				c->state = STATE_BROADCAST_DONE;
+				c->transaction_end_time = get_current_time();
+			}
 		}
 	}
 }
@@ -387,19 +422,22 @@ static bool channel_check_rx(struct channel *c)
 
 static void channel_rx_frame(struct channel *c)
 {
+	u32 time_delta = c->transaction_end_time - c->transaction_start_time;
+
 	if (!channel_check_rx(c)) {
 		internal_error_reply(c->current, MODBUS_ERR_GATEWAY_TARGET_DEVICE_FAILED);
 	} else {
 		struct urs485_message *m = &c->current->msg;
 		m->frame_size = c->rx_size - 2;
 		memcpy(m->frame, c->rx_buf, m->frame_size);
-		CDEBUG(c, "Msg #%04x: Received %d bytes\n", m->message_id, c->rx_size);
+		CDEBUG(c, "Msg #%04x: Received %d bytes (time=%u)\n", m->message_id, c->rx_size, (uint) time_delta);
 		c->port_status->cnt_unicasts++;
 	}
 
 	queue_put(&done_queue, c->current);
 	c->state = STATE_IDLE;
 	c->current = NULL;
+	c->port_state->last_transaction_end_time = c->transaction_end_time;
 }
 
 static void channel_broadcast_done(struct channel *c)
@@ -413,6 +451,7 @@ static void channel_broadcast_done(struct channel *c)
 	c->state = STATE_IDLE;
 	c->current = NULL;
 	c->port_status->cnt_broadcasts++;
+	c->port_state->last_transaction_end_time = c->transaction_end_time;
 }
 
 static void channel_check_timeout(struct channel *c)
@@ -448,7 +487,7 @@ static void channel_idle(struct channel *c)
 	CDEBUG(c, "Msg #%04x: Sending %d bytes to port %d\n", m->message_id, m->frame_size + 2, c->current->msg.port);
 
 	channel_activate_port(c, c->current->msg.port);
-	channel_tx_init(c);
+	channel_tx_gap(c);
 }
 
 static void channel_loop(struct channel *c)

@@ -50,6 +50,7 @@ extern struct message_queue done_queue;		// to pass to the host
 struct port_state {
 	struct urs485_port_params params;
 	struct urs485_port_status status;
+	u32 last_transaction_end_time;
 };
 
 extern struct port_state ports[8];

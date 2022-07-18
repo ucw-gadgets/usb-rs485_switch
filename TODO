@@ -22,6 +22,8 @@
 
 == Firmware ==
 
+  - Configurable timeouts.
+
   - Measuring transaction times and switch load.
 
   - Measuring of current (needs HW fixes).

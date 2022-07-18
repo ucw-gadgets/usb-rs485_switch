@@ -50,5 +50,6 @@ enum urs485_holding_register {
 	URS485_HREG_PARITY = 2,				// Parity mode: 0=none, 1=odd, 2=even
 	URS485_HREG_POWERED = 3,			// Deliver power to the port: 0=off, 1=on
 	URS485_HREG_TIMEOUT = 4,			// Timeout when waiting for reply [ms]
-	URS485_HREG_MAX,
+	URS485_HREG_CONFIG_MAX,
+	URS485_HREG_RESET_STATS = 0x1000,		// Write 0xdead to reset port statistics
 };

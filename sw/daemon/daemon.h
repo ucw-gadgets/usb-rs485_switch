@@ -116,6 +116,7 @@ bool usb_is_ready(struct box *box);
 void usb_submit_message(struct message *m);
 bool usb_submit_get_port_status(struct port *port);
 bool usb_submit_set_port_params(struct port *port);
+bool usb_submit_reset_port_stats(struct port *port);
 char *usb_get_revision(struct box *box);
 char *usb_get_serial_number(struct box *box);
 

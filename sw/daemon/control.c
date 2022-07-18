@@ -30,6 +30,7 @@ struct ctrl {
 	byte *wpos, *wend;
 	bool need_get_port_status;
 	bool need_set_port_params;
+	bool need_reset_port_stats;
 };
 
 #define CTRL_DBG(ctrl_ctx, fmt, ...) DBG("CTRL(%s): " fmt, ctrl_ctx->for_port->box->cf->name, ##__VA_ARGS__)
@@ -125,7 +126,7 @@ static uint get_input_register(struct ctrl *c, uint addr)
 
 static bool check_holding_register_addr(struct ctrl *c UNUSED, uint addr)
 {
-	return (addr >= 1 && addr < URS485_HREG_MAX);
+	return (addr >= 1 && addr < URS485_HREG_CONFIG_MAX || URS485_HREG_RESET_STATS);
 }
 
 static uint get_holding_register(struct ctrl *c, uint addr)
@@ -141,6 +142,8 @@ static uint get_holding_register(struct ctrl *c, uint addr)
 			return port->powered;
 		case URS485_HREG_TIMEOUT:
 			return port->request_timeout;
+		case URS485_HREG_RESET_STATS:
+			return 0;
 		default:
 			ASSERT(0);
 	}
@@ -157,6 +160,8 @@ static bool check_holding_register_write(struct ctrl *c UNUSED, uint addr, uint 
 			return (val <= 1);
 		case URS485_HREG_TIMEOUT:
 			return (val >= 1 && val <= 65535);
+		case URS485_HREG_RESET_STATS:
+			return true;
 		default:
 			return false;
 	}
@@ -182,6 +187,10 @@ static void set_holding_register(struct ctrl *c, uint addr, uint val)
 		case URS485_HREG_TIMEOUT:
 			port->request_timeout = val;
 			c->need_set_port_params = true;
+			break;
+		case URS485_HREG_RESET_STATS:
+			if (val == 0xdead)
+				c->need_reset_port_stats = true;
 			break;
 		default:
 			ASSERT(0);
@@ -228,6 +237,30 @@ static void func_read_registers(struct ctrl *c, bool holding)
 	c->state = CSTATE_DONE;
 }
 
+static bool finish_write(struct ctrl *c)
+{
+	// Fortunately, there is a gap between different kinds of registers,
+	// so we never need to schedule multiple USB requests per MODBUS transaction.
+
+	if (c->need_set_port_params) {
+		persist_schedule_write(c->for_port->box);
+		if (usb_submit_set_port_params(c->for_port)) {
+			c->state = CSTATE_USB_WRITE;
+			return true;
+		}
+		// If USB is not connected, parameter changes will apply after reconnect
+	}
+
+	if (c->need_reset_port_stats) {
+		if (usb_submit_reset_port_stats(c->for_port)) {
+			c->state = CSTATE_USB_WRITE;
+			return true;
+		}
+	}
+
+	return false;
+}
+
 static void func_write_single_register(struct ctrl *c)
 {
 	if (read_remains(c) < 4)
@@ -248,14 +281,8 @@ static void func_write_single_register(struct ctrl *c)
 
 			set_holding_register(c, addr, value);
 
-			if (c->need_set_port_params) {
-				persist_schedule_write(c->for_port->box);
-				if (usb_submit_set_port_params(c->for_port)) {
-					c->state = CSTATE_USB_WRITE;
-					return;
-				}
-				// If USB is not connected, parameter changes will apply after reconnect
-			}
+			if (finish_write(c))
+				return;
 			break;
 		case CSTATE_USB_WRITE:
 			break;
@@ -300,14 +327,8 @@ static void func_write_multiple_registers(struct ctrl *c)
 			for (uint i = 0; i < count; i++)
 				set_holding_register(c, start + i, val[i]);
 
-			if (c->need_set_port_params) {
-				persist_schedule_write(c->for_port->box);
-				if (usb_submit_set_port_params(c->for_port)) {
-					c->state = CSTATE_USB_WRITE;
-					return;
-				}
-				// If USB is not connected, parameter changes will apply after reconnect
-			}
+			if (finish_write(c))
+				return;
 			break;
 		case CSTATE_USB_WRITE:
 			break;
@@ -505,7 +526,12 @@ void control_submit_message(struct message *m)
 	struct ctrl *c = m->ctrl;
 	c->msg = m;
 	c->for_port = &m->box->ports[slave_addr];
+
 	c->state = CSTATE_INIT;
+	c->need_get_port_status = false;
+	c->need_set_port_params = false;
+	c->need_reset_port_stats = false;
+
 	control_process_message(c);
 }
 

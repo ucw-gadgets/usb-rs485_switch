@@ -319,6 +319,16 @@ bool usb_submit_set_port_params(struct port *port)
 	return true;
 }
 
+bool usb_submit_reset_port_stats(struct port *port)
+{
+	struct usb_context *u = port->box->usb;
+	if (!u)
+		return false;
+	USB_DBG(u, "RESET_PORT_STATS on port %d", port->port_number);
+	usb_submit_ctrl(u, port, URS485_CONTROL_RESET_STATS, true, 0);
+	return true;
+}
+
 static void startup_scheduler(struct usb_context *u)
 {
 	// State machine for the initialization sequence

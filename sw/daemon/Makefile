@@ -16,7 +16,7 @@ urs485-daemon.o: urs485-daemon.c daemon.h ../firmware/interface.h
 usb.o: usb.c daemon.h mainloop-usb.h
 mainloop-usb.o: mainloop-usb.c mainloop-usb.h
 client.o: client.c daemon.h
-control.o: control.c daemon.h
+control.o: control.c daemon.h control.h
 
 install: urs485-daemon
 	install urs485-daemon /usr/local/sbin/

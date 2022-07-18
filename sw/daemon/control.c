@@ -9,6 +9,7 @@
 #undef LOCAL_DEBUG
 
 #include "daemon.h"
+#include "control.h"
 
 #include <string.h>
 
@@ -87,7 +88,7 @@ static uint u32_part(uint addr, u32 val)
 
 static bool check_input_register_addr(struct ctrl *c, uint addr)
 {
-	if (addr >= 1 && addr <= 17) {
+	if (addr >= 1 && addr < URS485_IREG_MAX) {
 		c->need_get_port_status = true;
 		return true;
 	}
@@ -99,23 +100,23 @@ static uint get_input_register(struct ctrl *c, uint addr)
 	struct port *port = c->for_port;
 
 	switch (addr) {
-		case 1:
+		case URS485_IREG_CURRENT_SENSE:
 			return port->current_sense;
-		case 2 ... 3:
+		case URS485_IREG_CNT_BROADCASTS ... URS485_IREG_CNT_BROADCASTS_HI:
 			return u32_part(addr, port->cnt_broadcasts);
-		case 4 ... 5:
+		case URS485_IREG_CNT_UNICASTS ... URS485_IREG_CNT_UNICASTS_HI:
 			return u32_part(addr, port->cnt_unicasts);
-		case 6 ... 7:
+		case URS485_IREG_CNT_FRAME_ERRORS ... URS485_IREG_CNT_FRAME_ERRORS_HI:
 			return u32_part(addr, port->cnt_frame_errors);
-		case 8 ... 9:
+		case URS485_IREG_CNT_OVERSIZE_ERRORS ... URS485_IREG_CNT_OVERSIZE_ERRORS_HI:
 			return u32_part(addr, port->cnt_oversize_errors);
-		case 10 ... 11:
+		case URS485_IREG_CNT_UNDERSIZE_ERRORS ... URS485_IREG_CNT_UNDERSIZE_ERRORS_HI:
 			return u32_part(addr, port->cnt_undersize_errors);
-		case 12 ... 13:
+		case URS485_IREG_CNT_CRC_ERRORS ... URS485_IREG_CNT_CRC_ERRORS_HI:
 			return u32_part(addr, port->cnt_crc_errors);
-		case 14 ... 15:
+		case URS485_IREG_CNT_MISMATCH_ERRORS ... URS485_IREG_CNT_MISMATCH_ERRORS_HI:
 			return u32_part(addr, port->cnt_mismatch_errors);
-		case 16 ... 17:
+		case URS485_IREG_CNT_TIMEOUTS ... URS485_IREG_CNT_TIMEOUTS_HI:
 			return u32_part(addr, port->cnt_timeouts);
 		default:
 			ASSERT(0);
@@ -124,7 +125,7 @@ static uint get_input_register(struct ctrl *c, uint addr)
 
 static bool check_holding_register_addr(struct ctrl *c UNUSED, uint addr)
 {
-	return (addr >= 1 && addr <= 4);
+	return (addr >= 1 && addr < URS485_HREG_MAX);
 }
 
 static uint get_holding_register(struct ctrl *c, uint addr)
@@ -132,13 +133,13 @@ static uint get_holding_register(struct ctrl *c, uint addr)
 	struct port *port = c->for_port;
 
 	switch (addr) {
-		case 1:
+		case URS485_HREG_BAUD_RATE:
 			return port->baud_rate / 100;
-		case 2:
+		case URS485_HREG_PARITY:
 			return port->parity;
-		case 3:
+		case URS485_HREG_POWERED:
 			return port->powered;
-		case 4:
+		case URS485_HREG_TIMEOUT:
 			return port->request_timeout;
 		default:
 			ASSERT(0);
@@ -148,13 +149,13 @@ static uint get_holding_register(struct ctrl *c, uint addr)
 static bool check_holding_register_write(struct ctrl *c UNUSED, uint addr, uint val)
 {
 	switch (addr) {
-		case 1:
+		case URS485_HREG_BAUD_RATE:
 			return (val >= 12 && val <= 1152);
-		case 2:
+		case URS485_HREG_PARITY:
 			return (val <= 2);
-		case 3:
+		case URS485_HREG_POWERED:
 			return (val <= 1);
-		case 4:
+		case URS485_HREG_TIMEOUT:
 			return (val >= 1 && val <= 65535);
 		default:
 			return false;
@@ -166,19 +167,19 @@ static void set_holding_register(struct ctrl *c, uint addr, uint val)
 	struct port *port = c->for_port;
 
 	switch (addr) {
-		case 1:
+		case URS485_HREG_BAUD_RATE:
 			port->baud_rate = val * 100;
 			c->need_set_port_params = true;
 			break;
-		case 2:
+		case URS485_HREG_PARITY:
 			port->parity = val;
 			c->need_set_port_params = true;
 			break;
-		case 3:
+		case URS485_HREG_POWERED:
 			port->powered = val;
 			c->need_set_port_params = true;
 			break;
-		case 4:
+		case URS485_HREG_TIMEOUT:
 			port->request_timeout = val;
 			c->need_set_port_params = true;
 			break;

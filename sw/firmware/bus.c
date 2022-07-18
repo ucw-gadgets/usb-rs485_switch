@@ -75,6 +75,10 @@ enum mb_rx_bad {
 	RX_BAD_OVERSIZE,
 };
 
+// State related to port LEDs
+static byte led_active_mask;		// ports currently active
+static byte led_history_mask;		// ports active since last recalculation
+
 bool set_port_params(uint port, struct urs485_port_params *par)
 {
 	if (par->baud_rate < 1200 || par->baud_rate > 115200 ||
@@ -115,13 +119,8 @@ static void channel_activate_port(struct channel *c, uint port)
 	if (c->active_port != port || c->port_stale) {
 		CDEBUG(c, "Activating port %d\n", port);
 
-		if (c->active_port != 0xff) {
-			reg_clear_flag(c->active_port, SF_LED | SF_TXEN);
+		if (c->active_port != 0xff)
 			reg_set_flag(c->active_port, SF_RXEN_N);
-		}
-
-		reg_set_flag(port, SF_LED);
-		reg_send();
 
 		struct port_state *state = &ports[port];
 		struct urs485_port_params *par = &state->params;
@@ -165,6 +164,17 @@ static void channel_activate_port(struct channel *c, uint port)
 		c->port_state = state;
 		c->port_status = &state->status;
 	}
+
+	led_active_mask |= 1U << port;
+	led_history_mask |= 1U << port;
+}
+
+static void channel_deactivate_port(struct channel *c)
+{
+	// As an optimization, we do not really change hardware state here.
+	// Everything is handled at the next channel activation.
+
+	led_active_mask &= ~(1U << c->active_port);
 }
 
 static void channel_tx_init(struct channel *c)
@@ -438,6 +448,7 @@ static void channel_rx_frame(struct channel *c)
 	c->state = STATE_IDLE;
 	c->current = NULL;
 	c->port_state->last_transaction_end_time = c->transaction_end_time;
+	channel_deactivate_port(c);
 }
 
 static void channel_broadcast_done(struct channel *c)
@@ -452,6 +463,7 @@ static void channel_broadcast_done(struct channel *c)
 	c->current = NULL;
 	c->port_status->cnt_broadcasts++;
 	c->port_state->last_transaction_end_time = c->transaction_end_time;
+	channel_deactivate_port(c);
 }
 
 static void channel_check_timeout(struct channel *c)
@@ -471,6 +483,7 @@ static void channel_check_timeout(struct channel *c)
 	c->state = STATE_IDLE;
 	c->current = NULL;
 	c->port_status->cnt_timeouts++;
+	channel_deactivate_port(c);
 }
 
 static void channel_idle(struct channel *c)
@@ -509,10 +522,30 @@ static void channel_loop(struct channel *c)
 		channel_idle(c);
 }
 
+static void bus_update_leds(void)
+{
+	for (uint i=0; i<8; i++) {
+		if (led_history_mask & (1U << i))
+			reg_set_flag(i, SF_LED);
+		else
+			reg_clear_flag(i, SF_LED);
+	}
+	reg_send();
+
+	led_history_mask = led_active_mask;
+}
+
 void bus_loop(void)
 {
+	static u32 last_leds = 3;
+
 	channel_loop(&channels[0]);
 	channel_loop(&channels[1]);
+
+	if (ms_ticks - last_leds >= 100) {
+		bus_update_leds();
+		last_leds = ms_ticks;
+	}
 }
 
 void got_msg_from_usb(struct message_node *n)

@@ -30,8 +30,6 @@
 
   - Measuring of current (needs HW fixes).
 
-  - Proper activity LEDs.
-
 == Daemon ==
 
   - Counters on TCP MODBUS events?

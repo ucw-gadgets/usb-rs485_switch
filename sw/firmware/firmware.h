@@ -22,7 +22,7 @@ extern char serial_number[13];
 
 /*** Message queues (main.c) ***/
 
-#define MAX_IN_FLIGHT 2
+#define MAX_IN_FLIGHT 4
 
 struct message_node {
 	struct message_node *next;

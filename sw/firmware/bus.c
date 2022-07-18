@@ -14,10 +14,7 @@
 
 #include <string.h>
 
-// Debugging
-#define MODBUS_DEBUG
-
-#ifdef MODBUS_DEBUG
+#ifdef DEBUG_MODBUS
 #define DEBUG debug_printf
 #define CDEBUG(c, msg, ...) debug_printf("MODBUS%d: " msg, c->id, ## __VA_ARGS__)
 #else
@@ -432,7 +429,9 @@ static bool channel_check_rx(struct channel *c)
 
 static void channel_rx_frame(struct channel *c)
 {
+#ifdef DEBUG_MODBUS
 	u32 time_delta = c->transaction_end_time - c->transaction_start_time;
+#endif
 
 	if (!channel_check_rx(c)) {
 		internal_error_reply(c->current, MODBUS_ERR_GATEWAY_TARGET_DEVICE_FAILED);

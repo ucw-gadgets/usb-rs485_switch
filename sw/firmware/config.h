@@ -12,3 +12,8 @@
 
 #define DEBUG_USART USART2
 #define DEBUG_LED_BLUEPILL
+
+// Debug message switches
+
+#undef DEBUG_USB
+#undef DEBUG_MODBUS

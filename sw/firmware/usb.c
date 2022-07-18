@@ -18,6 +18,12 @@ static usbd_device *usbd_dev;
 static bool usb_configured;
 static u32 usb_generation;		// Incremented on each bus reset
 
+#ifdef DEBUG_USB
+#define DEBUG(msg, ...) debug_printf("USB: " msg, ## __VA_ARGS__)
+#else
+#define DEBUG(...) do { } while (0)
+#endif
+
 /*** Descriptors ***/
 
 enum usb_string {
@@ -159,7 +165,7 @@ static enum usbd_request_return_codes control_cb(
 	uint index = req->wIndex;
 
 	if (req->bmRequestType == (USB_REQ_TYPE_IN | USB_REQ_TYPE_VENDOR | USB_REQ_TYPE_DEVICE)) {
-		debug_printf("USB: Control request IN %02x (index=%d, len=%d)\n", req->bRequest, index, *len);
+		DEBUG("Control request IN %02x (index=%d, len=%d)\n", req->bRequest, index, *len);
 
 		const byte *reply = NULL;
 		uint reply_len = 0;
@@ -188,7 +194,7 @@ static enum usbd_request_return_codes control_cb(
 		*len = n;
 		return USBD_REQ_HANDLED;
 	} else if (req->bmRequestType == (USB_REQ_TYPE_OUT | USB_REQ_TYPE_VENDOR | USB_REQ_TYPE_DEVICE)) {
-		debug_printf("USB: Control request OUT %02x (index=%d, len=%d)\n", req->bRequest, index, *len);
+		DEBUG("Control request OUT %02x (index=%d, len=%d)\n", req->bRequest, index, *len);
 
 		switch (req->bRequest) {
 			case URS485_CONTROL_SET_PORT_PARAMS:
@@ -226,13 +232,13 @@ static void ep01_cb(usbd_device *dev, uint8_t ep UNUSED)
 	// We received a frame from the USB host
 	uint len = usbd_ep_read_packet(dev, 0x01, usb_rx_buffer, sizeof(usb_rx_buffer));
 	byte *pos = usb_rx_buffer;
-	debug_printf("USB: Host sent %u bytes\n", len);
+	DEBUG("Host sent %u bytes\n", len);
 
 	while (len) {
 		if (!usb_rx_msg) {
 			usb_rx_msg = queue_get(&idle_queue);
 			if (!usb_rx_msg) {
-				debug_printf("USB: No receive buffer available\n");
+				DEBUG("No receive buffer available\n");
 				// The only chance to signal error is to stall the pipes
 				usbd_ep_stall_set(dev, 0x01, 1);
 				usbd_ep_stall_set(dev, 0x82, 1);
@@ -253,7 +259,7 @@ static void ep01_cb(usbd_device *dev, uint8_t ep UNUSED)
 		}
 
 		if (usb_rx_pos >= URS485_MSGHDR_SIZE && usb_rx_pos == URS485_MSGHDR_SIZE + usb_rx_msg->msg.frame_size) {
-			debug_printf("USB: Received message #%04x of %u bytes\n", usb_rx_msg->msg.message_id, usb_rx_pos);
+			DEBUG("Received message #%04x of %u bytes\n", usb_rx_msg->msg.message_id, usb_rx_pos);
 			got_msg_from_usb(usb_rx_msg);
 			usb_rx_msg = NULL;
 		}
@@ -271,9 +277,9 @@ static void ep82_kick(void)
 			return;
 		struct urs485_message *m = &usb_tx_msg->msg;
 		if (usb_tx_msg->usb_generation == usb_generation) {
-			debug_printf("USB: Sending message #%04x\n", m->message_id);
+			DEBUG("Sending message #%04x\n", m->message_id);
 		} else {
-			debug_printf("USB: Flushing previous-generation message\n");
+			DEBUG("Flushing previous-generation message\n");
 			m->port = 0xff;
 			m->frame_size = 0;
 			m->message_id = 0;
@@ -288,7 +294,7 @@ static void ep82_kick(void)
 	usb_tx_pos += len;
 
 	if (usb_tx_pos == goal) {
-		debug_printf("USB: Sent\n");
+		DEBUG("Sent\n");
 		queue_put(&idle_queue, usb_tx_msg);
 		usb_tx_msg = NULL;
 	}
@@ -340,7 +346,7 @@ static void set_config_cb(usbd_device *dev, uint16_t wValue UNUSED)
 
 static void reset_cb(void)
 {
-	debug_printf("USB: Reset\n");
+	DEBUG("Reset\n");
 	usb_configured = false;
 }
 

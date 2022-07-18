@@ -72,6 +72,9 @@ def cmd_config_set(args):
 
 
 def cmd_status(args):
+    if args.reset:
+        return cmd_status_reset(args)
+
     ports = parse_port_list(args.p, True)
 
     row_headings = [
@@ -139,6 +142,12 @@ def cmd_status(args):
         for i in range(len(ports)):
             print(f'{table[i][r]:>10}', end="")
         print()
+
+
+def cmd_status_reset(args):
+    for port in parse_port_list(args.p, True):
+        rr = modbus.write_register(0x1000, 0xdead, unit=port)
+        check_modbus_error(rr)
 
 
 def cmd_version(args):
@@ -282,8 +291,10 @@ def parse_port_list(ports, default_all):
 
 def check_modbus_error(resp):
     if resp.isError():
-        assert isinstance(resp, ExceptionResponse)
-        die(f'Management bus error: {ModbusExceptions.decode(resp.exception_code)}')
+        if isinstance(resp, ExceptionResponse):
+            die(f'Management bus error: {ModbusExceptions.decode(resp.exception_code)}')
+        else:
+            die(f'Management bus error: {resp}')
 
 
 def die(msg):
@@ -306,6 +317,7 @@ p_config.add_argument('--timeout', type=int, help='reply timeout [ms]')
 
 p_status = sub.add_parser('status', help='show port status')
 p_status.add_argument('-p', help='on which ports to act (e.g., "3,5-7" or "all")')
+p_status.add_argument('--reset', default=False, action='store_true', help='reset statistics')
 
 p_version = sub.add_parser('version', help='show switch version')
 

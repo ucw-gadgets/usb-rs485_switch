@@ -541,7 +541,7 @@ void bus_loop(void)
 	channel_loop(&channels[0]);
 	channel_loop(&channels[1]);
 
-	if (ms_ticks - last_leds >= 100) {
+	if (ms_ticks - last_leds >= 50) {
 		bus_update_leds();
 		last_leds = ms_ticks;
 	}

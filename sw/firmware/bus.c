@@ -101,6 +101,20 @@ bool set_port_params(uint port, struct urs485_port_params *par)
 	return true;
 }
 
+void reset_port_stats(uint port)
+{
+	struct urs485_port_status *s = &ports[port].status;
+
+	s->cnt_broadcasts = 0;
+	s->cnt_unicasts = 0;
+	s->cnt_frame_errors = 0;
+	s->cnt_oversize_errors = 0;
+	s->cnt_undersize_errors = 0;
+	s->cnt_crc_errors = 0;
+	s->cnt_mismatch_errors = 0;
+	s->cnt_timeouts = 0;
+}
+
 static void internal_error_reply(struct message_node *n, byte error_code)
 {
 	struct urs485_message *m = &n->msg;

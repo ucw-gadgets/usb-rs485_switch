@@ -61,6 +61,7 @@ enum urs485_control_request {
 	URS485_CONTROL_SET_PORT_PARAMS,	// out: accepts struct urs485_port_params (wIndex=port number)
 	URS485_CONTROL_GET_PORT_STATUS,	// in: sends struct urs485_port_status (wIndex=port number)
 	URS485_CONTROL_GET_POWER_STATUS,	// in: sends struct urs485_power_status
+	URS485_CONTROL_RESET_STATS,	// out: reset statistics (wIndex=port number)
 };
 
 struct urs485_config {

@@ -78,6 +78,7 @@ void bus_init(void);
 void bus_loop(void);
 
 bool set_port_params(uint port, struct urs485_port_params *par);
+void reset_port_stats(uint port);
 
 void got_msg_from_usb(struct message_node *m);
 

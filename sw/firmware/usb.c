@@ -207,6 +207,14 @@ static enum usbd_request_return_codes control_cb(
 				if (!set_port_params(index, &new_params))
 					return USBD_REQ_NOTSUPP;
 				break;
+			case URS485_CONTROL_RESET_STATS:
+				if (index >= 8)
+					return USBD_REQ_NOTSUPP;
+				if (*len != 0)
+					return USBD_REQ_NOTSUPP;
+				reset_port_stats(index);
+				break;
+
 			default:
 				return USBD_REQ_NOTSUPP;
 		}

@@ -78,6 +78,13 @@ static void FORMAT_CHECK(printf,2,3) usb_error(struct usb_context *u, const char
 
 	USB_MSG(u, L_ERROR, "%s", formatted_msg);
 	u->state = USTATE_BROKEN;
+
+	if (u->rx_in_flight)
+		libusb_cancel_transfer(u->rx_transfer);
+	if (u->tx_in_flight)
+		libusb_cancel_transfer(u->tx_transfer);
+	if (u->ctrl_in_flight)
+		libusb_cancel_transfer(u->ctrl_transfer);
 }
 
 bool usb_is_ready(struct box *box)

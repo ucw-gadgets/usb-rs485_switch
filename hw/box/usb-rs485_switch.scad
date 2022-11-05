@@ -8,8 +8,8 @@ pcb_solder = 2.5;
 
 conn_w = 16.4;
 conn_spc = 3.2;
-conn_off = 10.6;
-conn_off_2 = 11.1;
+conn_off = 10.1;
+conn_off_2 = 11.6;
 conn_h = 13.5;
 conn_b = 2.5;
 conn_d = 15.3;
@@ -29,12 +29,12 @@ max = 1000;
 
 pwr_w = 19.2;
 pwr_h = 7.4;
-pwr_off = 10.6;
+pwr_off = 10.1;
 pwr_d = 6;
 
 usb_w = 10;
 usb_h = 4.2;
-usb_off = 52.3;
+usb_off = 51.7;
 usb_d = 6;
 
 $fn = 64;

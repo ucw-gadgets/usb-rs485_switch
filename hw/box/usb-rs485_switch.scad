@@ -27,9 +27,11 @@ hole_head = 2.2;
 
 max = 1000;
 
-pwr_w = 19.2;
-pwr_h = 7.4;
-pwr_off = 10.1;
+pwr_w = 18.8;
+pwr_mw = 9.30;
+pwr_h = 7.2;
+pwr_mh = 5.45;
+pwr_off = 10.3;
 pwr_d = 6;
 
 usb_w = 10;
@@ -77,7 +79,8 @@ module pcb() {
 	for (i = [0:7]) {
 		translate([-conn_so, conn_off + i * (conn_w + conn_spc), pcb_t]) cube([conn_d, conn_w, conn_h]);
 	}
-	translate([pcb_d - 0.1, pwr_off, pcb_t]) cube([pwr_d, pwr_w, pwr_h]);
+	translate([pcb_d - 0.1, pwr_off, pcb_t]) cube([pwr_d, pwr_w, pwr_mh]);
+	translate([pcb_d - 0.1, pwr_off + pwr_w/2 - pwr_mw/2, pcb_t]) cube([pwr_d, pwr_mw, pwr_h]);
 	
 	translate([pcb_d - 0.1, usb_off, pcb_t]) {
 		translate([0, usb_h/2, usb_h / 2]) rotate([0,90,0]) cylinder(d = usb_h, h = usb_d);
@@ -161,8 +164,8 @@ module topbox_t() {
 }
 
 
-markings();
-//topbox_t();
+//markings();
+topbox_t();
 //botbox();
 
 

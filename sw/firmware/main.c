@@ -302,6 +302,18 @@ void reg_toggle_flag(uint port, uint flag)
 	reg_state[port/2] ^= (port & 1) ? flag : (flag << 4);
 }
 
+static void led_snake(void)
+{
+	for (int i=0; i<16; i++) {
+		int j = (i & 7) ^ (i < 8 ? 7 : 0);
+		reg_set_flag(j, SF_LED);
+		reg_send();
+		delay_ms(100);
+		reg_clear_flag(j, SF_LED);
+		reg_send();
+	}
+}
+
 /*** ADC ***/
 
 static void adc_init(void)
@@ -349,11 +361,12 @@ int main(void)
 	reg_init();
 	tick_init();
 	adc_init();
-	usb_init();
 	queues_init();
 	bus_init();
 
 	debug_printf("USB-RS485 Switch (version %04x, serial %s)\n", URS485_USB_VERSION, serial_number);
+	led_snake();
+	usb_init();
 
 	u32 last_blink = 0;
 

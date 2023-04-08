@@ -20,6 +20,8 @@
   - Bias resistors are swapped: A should be biased to +, B to -,
     so that the idle state of the line is H.
 
+  - It would be nice to have power LEDs visible from outside the case.
+
 == Firmware ==
 
   - Configurable timeouts.

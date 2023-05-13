@@ -19,17 +19,19 @@ def cmd_config(args):
     if (args.baud is not None or
         args.parity is not None or
         args.power is not None or
-        args.timeout is not None):
+        args.timeout is not None or
+        args.description is not None):
         return cmd_config_set(args)
 
     ports = parse_port_list(args.p, True)
 
-    print('Port  Baud   Parity  Power  Timeout [ms]')
+    print('Port  Descr.    Baud   Parity  Power  Timeout [ms]')
     for port in ports:
-        rr = modbus.read_holding_registers(1, 4, unit=port)
+        rr = modbus.read_holding_registers(1, 8, unit=port)
         check_modbus_error(rr)
-        baud, parity, powered, timeout = rr.registers
-        print(f'{port}    {baud*100:6}  {parity_by_number[parity]:4}    {power_by_number[powered]:3}   {timeout:5}')
+        baud, parity, powered, timeout = rr.registers[:4]
+        descr = [chr(rr.registers[4+i] >> 8) + chr(rr.registers[4+i] & 0x7f) for i in range(4)]
+        print(f'{port}     {"".join(descr)} {baud*100:6}  {parity_by_number[parity]:4}    {power_by_number[powered]:3}   {timeout:5}')
 
 
 def cmd_config_set(args):
@@ -55,6 +57,13 @@ def cmd_config_set(args):
     if not(args.timeout is None or args.timeout in range(1, 65536)):
         die('Timeout out of range')
 
+    if args.description is not None:
+        if len(args.description) > 8:
+            die('Description may have at most 8 characters')
+        descr = f'{args.description:8}'.encode('US-ASCII')
+    else:
+        descr = None
+
     for port in parse_port_list(args.p, False):
         if baud is not None:
             rr = modbus.write_register(1, baud, unit=port)
@@ -68,7 +77,10 @@ def cmd_config_set(args):
         if args.timeout is not None:
             rr = modbus.write_register(4, args.timeout, unit=port)
             check_modbus_error(rr)
-
+        if descr is not None:
+            regs = [(descr[2*i] << 8) + descr[2*i + 1] for i in range(4)]
+            rr = modbus.write_registers(5, regs, unit=port)
+            check_modbus_error(rr)
 
 
 def cmd_status(args):
@@ -314,6 +326,7 @@ p_config.add_argument('--baud', type=int, help='baud rate (1200-115200)')
 p_config.add_argument('--parity', help='parity (none/odd/even)')
 p_config.add_argument('--power', type=int, help='deliver power to the port (0/1)')
 p_config.add_argument('--timeout', type=int, help='reply timeout [ms]')
+p_config.add_argument('--description', type=str, help='port description (up to 8 characters)')
 
 p_status = sub.add_parser('status', help='show port status')
 p_status.add_argument('-p', help='on which ports to act (e.g., "3,5-7" or "all")')

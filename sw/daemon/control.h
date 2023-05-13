@@ -1,7 +1,7 @@
 /*
  *	USB-RS485 Switch Daemon -- Control Protocol
  *
- *	(c) 2022 Martin Mares <mj@ucw.cz>
+ *	(c) 2022--2023 Martin Mares <mj@ucw.cz>
  */
 
 /*
@@ -50,6 +50,10 @@ enum urs485_holding_register {
 	URS485_HREG_PARITY = 2,				// Parity mode: 0=none, 1=odd, 2=even
 	URS485_HREG_POWERED = 3,			// Deliver power to the port: 0=off, 1=on
 	URS485_HREG_TIMEOUT = 4,			// Timeout when waiting for reply [ms]
+	URS485_HREG_DESCRIPTION_1 = 5,			// Port description (ASCII, big-endian, space-padded)
+	URS485_HREG_DESCRIPTION_2 = 6,
+	URS485_HREG_DESCRIPTION_3 = 7,
+	URS485_HREG_DESCRIPTION_4 = 8,
 	URS485_HREG_CONFIG_MAX,
 	URS485_HREG_RESET_STATS = 0x1000,		// Write 0xdead to reset port statistics
 };

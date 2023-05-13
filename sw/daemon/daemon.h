@@ -1,7 +1,7 @@
 /*
  *	USB-RS485 Switch Daemon
  *
- *	(c) 2022 Martin Mares <mj@ucw.cz>
+ *	(c) 2022--2023 Martin Mares <mj@ucw.cz>
  */
 
 #include <ucw/lib.h>
@@ -14,6 +14,7 @@
 #define DAEMON_VERSION "0.1"
 
 #define NUM_PORTS 9			// 0 is the control port, 1-8 data ports
+#define PORT_DESCRIPTION_SIZE 8
 
 struct message {
 	cnode queue_node;		// In either port->ready_messages or busy_messages
@@ -47,11 +48,12 @@ struct port {
 	struct main_file listen_file;
 	clist ready_messages_qn;	// Ready to be sent over USB
 
-	// Port settings (host representation of urs485_port_params)
+	// Port settings (including host representation of urs485_port_params)
 	uint baud_rate;
 	uint parity;			// URS485_PARITY_xxx
 	uint powered;			// 0 or 1
 	uint request_timeout;		// in milliseconds
+	char description[PORT_DESCRIPTION_SIZE];
 
 	// Port status (host representation of urs485_port_status)
 	uint current_sense;

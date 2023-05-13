@@ -1,7 +1,7 @@
 /*
  *	USB-RS485 Switch Daemon -- Control Commands
  *
- *	(c) 2022 Martin Mares <mj@ucw.cz>
+ *	(c) 2022--2023 Martin Mares <mj@ucw.cz>
  *
  *	Based on parts of the MODBUS module from stm32lib.
  */
@@ -12,6 +12,7 @@
 #include "control.h"
 
 #include <string.h>
+#include <ucw/unaligned.h>
 
 // States of processing a control message
 enum control_state {
@@ -144,6 +145,8 @@ static uint get_holding_register(struct ctrl *c, uint addr)
 			return port->request_timeout;
 		case URS485_HREG_RESET_STATS:
 			return 0;
+		case URS485_HREG_DESCRIPTION_1 ... URS485_HREG_DESCRIPTION_4:
+			return get_u16_be(&port->description[2*(addr - URS485_HREG_DESCRIPTION_1)]);
 		default:
 			ASSERT(0);
 	}
@@ -160,6 +163,13 @@ static bool check_holding_register_write(struct ctrl *c UNUSED, uint addr, uint 
 			return (val <= 1);
 		case URS485_HREG_TIMEOUT:
 			return (val >= 1 && val <= 65535);
+		case URS485_HREG_DESCRIPTION_1 ... URS485_HREG_DESCRIPTION_4:
+			for (uint i=0; i<2; i++) {
+				uint x = (val >> (8*i)) & 0xff;
+				if (x < 0x20 || x >= 0x7f)
+					return 0;
+			}
+			return 1;
 		case URS485_HREG_RESET_STATS:
 			return true;
 		default:
@@ -187,6 +197,10 @@ static void set_holding_register(struct ctrl *c, uint addr, uint val)
 		case URS485_HREG_TIMEOUT:
 			port->request_timeout = val;
 			c->need_set_port_params = true;
+			break;
+		case URS485_HREG_DESCRIPTION_1 ... URS485_HREG_DESCRIPTION_4:
+			put_u16_be(&port->description[2*(addr - URS485_HREG_DESCRIPTION_1)], val);
+			persist_schedule_write(c->for_port->box);
 			break;
 		case URS485_HREG_RESET_STATS:
 			if (val == 0xdead)

@@ -1,7 +1,7 @@
 /*
  *	USB-RS485 Switch Daemon
  *
- *	(c) 2022 Martin Mares <mj@ucw.cz>
+ *	(c) 2022--2023 Martin Mares <mj@ucw.cz>
  */
 
 #include "daemon.h"
@@ -138,6 +138,14 @@ static void sched_init(struct box *box)
 
 /*** Persistent settings ***/
 
+static void port_set_description(struct port *port, const char *desc)
+{
+	uint len = strlen(desc);
+	len = MIN(len, PORT_DESCRIPTION_SIZE);
+	memcpy(port->description, desc, len);
+	memset(port->description + len, ' ', PORT_DESCRIPTION_SIZE - len);
+}
+
 static void persist_handler(struct main_timer *tm)
 {
 	struct box *box = tm->data;
@@ -149,6 +157,7 @@ static void persist_handler(struct main_timer *tm)
 	const char *tmpname = stk_printf("%s.new", filename);
 	struct fastbuf *fb = bopen_try(tmpname, O_WRONLY | O_CREAT | O_TRUNC, 4096);
 	bputsn(fb, "# baud parity powered timeout");
+	bputsn(fb, "# >description");
 
 	for (int i=1; i<NUM_PORTS; i++) {
 		struct port *port = &box->ports[i];
@@ -156,7 +165,9 @@ static void persist_handler(struct main_timer *tm)
 			port->baud_rate,
 			port->parity,
 			port->powered,
-			port->request_timeout);
+			port->request_timeout
+			);
+		bprintf(fb, ">%.*s\n", PORT_DESCRIPTION_SIZE, port->description);
 	}
 
 	bclose(fb);
@@ -190,6 +201,13 @@ static void persist_load(struct box *box)
 		lino++;
 		if (!line[0] || line[0] == '#')
 			continue;
+
+		if (line[0] == '>') {
+			ASSERT(i > 1);
+			struct port *port = &box->ports[i - 1];
+			port_set_description(port, line + 1);
+			continue;
+		}
 
 		int baud, parity, powered, timeout;
 		if (sscanf(line, "%d%d%d%d", &baud, &parity, &powered, &timeout) != 4)
@@ -254,6 +272,14 @@ static void port_init(struct box *box, int index)
 	port->parity = URS485_PARITY_EVEN;
 	port->powered = 0;
 	port->request_timeout = 5000;
+
+	if (index > 0) {
+		char desc[PORT_DESCRIPTION_SIZE + 1];
+		snprintf(desc, sizeof(desc), "port%d", index);
+		port_set_description(port, desc);
+	} else {
+		port_set_description(port, "ctrl");
+	}
 
 	net_init_port(port);
 }

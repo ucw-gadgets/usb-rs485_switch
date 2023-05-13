@@ -7,6 +7,7 @@ from pymodbus.client.sync import ModbusTcpClient
 from pymodbus.exceptions import ConnectionException
 from pymodbus.mei_message import *
 from pymodbus.pdu import ExceptionResponse, ModbusExceptions
+import re
 import sys
 
 parity_by_name = {'none': 0, 'odd': 1, 'even': 2}
@@ -90,6 +91,7 @@ def cmd_status(args):
     ports = parse_port_list(args.p, True)
 
     row_headings = [
+        'Description',
         'Baud rate',
         'Parity',
         'Powered',
@@ -114,11 +116,15 @@ def cmd_status(args):
         def u32(i):
             return (regs[i] << 16) + regs[i-1]
 
-        rr = modbus.read_holding_registers(1, 4, unit=port)
+        rr = modbus.read_holding_registers(1, 8, unit=port)
         check_modbus_error(rr)
         regs = rr.registers
 
+        desc = "".join([chr(regs[4+i] >> 8) + chr(regs[4+i] & 0x7f) for i in range(4)])
+        desc = re.sub(r' +$', "", desc)
+
         out = [
+            desc,
             u16(1) * 100,
             parity_by_number[u16(2)],
             power_by_number[u16(3)],

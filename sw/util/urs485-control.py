@@ -230,7 +230,7 @@ def scan_device(bus, addr):
             return
     print('responding')
 
-    rq = ReadDeviceInformationRequest(4, 0, slave=addr)
+    rq = ReadDeviceInformationRequest(4, 0, unit=addr)
     rr = bus.execute(rq)
     if rr.isError():
         print(f'\tIdentification not supported: {ModbusExceptions.decode(rr.exception_code)}')
@@ -261,7 +261,7 @@ def scan_device(bus, addr):
         for typ, min_id, max_id in ranges:
             id = min_id
             while id >= 0:
-                rq = ReadDeviceInformationRequest(typ, id, slave=addr)
+                rq = ReadDeviceInformationRequest(typ, id, unit=addr)
                 rr = bus.execute(rq)
                 if rr.isError():
                     break
@@ -273,7 +273,7 @@ def scan_device(bus, addr):
     else:
         for typ, min_id, max_id in ranges:
             for id in range(min_id, max_id + 1):
-                rq = ReadDeviceInformationRequest(4, id, slave=addr)
+                rq = ReadDeviceInformationRequest(4, id, unit=addr)
                 rr = bus.execute(rq)
                 if not rr.isError():
                     show_fields(rr)

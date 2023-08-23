@@ -3,7 +3,7 @@
 
 import argparse
 import logging
-from pymodbus.client.sync import ModbusTcpClient
+from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ConnectionException
 from pymodbus.mei_message import *
 from pymodbus.pdu import ExceptionResponse, ModbusExceptions
@@ -28,7 +28,7 @@ def cmd_config(args):
 
     print('Port  Descr.    Baud   Parity  Power  Timeout [ms]')
     for port in ports:
-        rr = modbus.read_holding_registers(1, 8, unit=port)
+        rr = modbus.read_holding_registers(1, 8, slave=port)
         check_modbus_error(rr)
         baud, parity, powered, timeout = rr.registers[:4]
         descr = [chr(rr.registers[4+i] >> 8) + chr(rr.registers[4+i] & 0x7f) for i in range(4)]
@@ -67,20 +67,20 @@ def cmd_config_set(args):
 
     for port in parse_port_list(args.p, False):
         if baud is not None:
-            rr = modbus.write_register(1, baud, unit=port)
+            rr = modbus.write_register(1, baud, slave=port)
             check_modbus_error(rr)
         if parity is not None:
-            rr = modbus.write_register(2, parity, unit=port)
+            rr = modbus.write_register(2, parity, slave=port)
             check_modbus_error(rr)
         if args.power is not None:
-            rr = modbus.write_register(3, args.power, unit=port)
+            rr = modbus.write_register(3, args.power, slave=port)
             check_modbus_error(rr)
         if args.timeout is not None:
-            rr = modbus.write_register(4, args.timeout, unit=port)
+            rr = modbus.write_register(4, args.timeout, slave=port)
             check_modbus_error(rr)
         if descr is not None:
             regs = [(descr[2*i] << 8) + descr[2*i + 1] for i in range(4)]
-            rr = modbus.write_registers(5, regs, unit=port)
+            rr = modbus.write_registers(5, regs, slave=port)
             check_modbus_error(rr)
 
 
@@ -116,7 +116,7 @@ def cmd_status(args):
         def u32(i):
             return (regs[i] << 16) + regs[i-1]
 
-        rr = modbus.read_holding_registers(1, 8, unit=port)
+        rr = modbus.read_holding_registers(1, 8, slave=port)
         check_modbus_error(rr)
         regs = rr.registers
 
@@ -131,7 +131,7 @@ def cmd_status(args):
             u16(4),
         ]
 
-        rr = modbus.read_input_registers(1, 17, unit=port)
+        rr = modbus.read_input_registers(1, 17, slave=port)
         check_modbus_error(rr)
         regs = rr.registers
 
@@ -164,7 +164,7 @@ def cmd_status(args):
 
 def cmd_status_reset(args):
     for port in parse_port_list(args.p, True):
-        rr = modbus.write_register(0x1000, 0xdead, unit=port)
+        rr = modbus.write_register(0x1000, 0xdead, slave=port)
         check_modbus_error(rr)
 
 
@@ -179,7 +179,7 @@ def cmd_version(args):
     ]
 
     for label, id in fields:
-        rq = ReadDeviceInformationRequest(4, id, unit=1)
+        rq = ReadDeviceInformationRequest(4, id, slave=1)
         rr = modbus.execute(rq)
         check_modbus_error(rr)
         val = rr.information.get(id, b'-').decode('utf-8')
@@ -220,7 +220,7 @@ def scan_device(bus, addr):
     print(f"Probing address {addr}: ", end="")
     sys.stdout.flush()
 
-    rr = bus.read_holding_registers(0, 1, unit=addr)
+    rr = bus.read_holding_registers(0, 1, slave=addr)
     if rr.isError():
         if rr.exception_code == ModbusExceptions.GatewayNoResponse:
             print('no response')
@@ -230,7 +230,7 @@ def scan_device(bus, addr):
             return
     print('responding')
 
-    rq = ReadDeviceInformationRequest(4, 0, unit=addr)
+    rq = ReadDeviceInformationRequest(4, 0, slave=addr)
     rr = bus.execute(rq)
     if rr.isError():
         print(f'\tIdentification not supported: {ModbusExceptions.decode(rr.exception_code)}')
@@ -261,7 +261,7 @@ def scan_device(bus, addr):
         for typ, min_id, max_id in ranges:
             id = min_id
             while id >= 0:
-                rq = ReadDeviceInformationRequest(typ, id, unit=addr)
+                rq = ReadDeviceInformationRequest(typ, id, slave=addr)
                 rr = bus.execute(rq)
                 if rr.isError():
                     break
@@ -273,7 +273,7 @@ def scan_device(bus, addr):
     else:
         for typ, min_id, max_id in ranges:
             for id in range(min_id, max_id + 1):
-                rq = ReadDeviceInformationRequest(4, id, unit=addr)
+                rq = ReadDeviceInformationRequest(4, id, slave=addr)
                 rr = bus.execute(rq)
                 if not rr.isError():
                     show_fields(rr)
